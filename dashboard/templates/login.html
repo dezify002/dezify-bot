@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade With Dezify - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-box {
+            text-align: center;
+            padding: 3rem;
+            animation: fadeInUp 1s ease;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .logo {
+            font-size: 3rem;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00d4aa, #00b894);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #64748b;
+            font-size: 0.9rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            margin-bottom: 3rem;
+        }
+
+        input {
+            display: block;
+            width: 280px;
+            margin: 0 auto 1rem;
+            padding: 1rem 1.5rem;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid #1e293b;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            text-align: center;
+            letter-spacing: 0.15em;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        input:focus {
+            border-color: #00d4aa;
+            box-shadow: 0 0 20px rgba(0,212,170,0.2);
+        }
+
+        button {
+            display: block;
+            width: 280px;
+            margin: 0 auto;
+            padding: 1rem;
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            border: none;
+            border-radius: 12px;
+            color: #0a0e1a;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0,212,170,0.3);
+        }
+
+        .error {
+            color: #ef4444;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .error.show { opacity: 1; }
+
+        /* Floating particles */
+        .particle {
+            position: fixed;
+            width: 3px;
+            height: 3px;
+            background: #00d4aa;
+            border-radius: 50%;
+            opacity: 0;
+            animation: float 10s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes float {
+            0% { opacity: 0; transform: translateY(100vh) scale(0); }
+            20% { opacity: 0.5; }
+            80% { opacity: 0.5; }
+            100% { opacity: 0; transform: translateY(-100px) scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div id="particles"></div>
+    
+    <div class="login-box">
+        <div class="logo">Trade With Dezify</div>
+        <div class="subtitle">8-Layer Algorithmic Trading</div>
+        <input type="password" id="password" placeholder="Enter password" onkeypress="if(event.key==='Enter')login()">
+        <button onclick="login()">Unlock Dashboard</button>
+        <div class="error" id="error">Incorrect password</div>
+    </div>
+
+    <script>
+        // Create particles
+        for (let i = 0; i < 25; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.animationDelay = Math.random() * 10 + 's';
+            p.style.animationDuration = (8 + Math.random() * 6) + 's';
+            document.getElementById('particles').appendChild(p);
+        }
+
+        async function login() {
+            const password = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    showError();
+                }
+            } catch (e) {
+                showError();
+            }
+        }
+
+        function showError() {
+            const err = document.getElementById('error');
+            err.classList.add('show');
+            setTimeout(() => err.classList.remove('show'), 2000);
+        }
+    </script>
+</body>
+</html>

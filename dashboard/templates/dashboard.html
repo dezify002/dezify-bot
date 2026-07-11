@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade With Dezify - Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #111827;
+            border-bottom: 1px solid #1e293b;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+
+        .logo {
+            font-size: 1.4rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #00d4aa, #00b894);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status.offline { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .status.online { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .status.live { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+        .mode-bar {
+            display: flex;
+            gap: 0.5rem;
+            background: #1a1f2e;
+            padding: 0.3rem;
+            border-radius: 10px;
+            border: 1px solid #1e293b;
+        }
+
+        .mode-btn {
+            padding: 0.5rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .mode-btn:hover { color: #e2e8f0; }
+        .mode-btn.active { background: rgba(0,212,170,0.15); color: #00d4aa; }
+        .mode-btn.live.active { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+        .start-btn {
+            padding: 0.6rem 1.5rem;
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            border: none;
+            border-radius: 8px;
+            color: #0a0e1a;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .start-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 15px rgba(0,212,170,0.3); }
+        .start-btn.stop { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
+
+        .main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: #1a1f2e;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 1.2rem;
+            transition: all 0.3s;
+        }
+
+        .stat-card:hover { border-color: #00d4aa; transform: translateY(-2px); }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; }
+        .stat-value.green { color: #22c55e; }
+        .stat-value.red { color: #ef4444; }
+        .stat-sub { font-size: 0.8rem; color: #475569; margin-top: 0.25rem; }
+
+        .card {
+            background: #1a1f2e;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+        }
+
+        .card-body { padding: 1rem; }
+
+        .warning-banner {
+            background: rgba(239,68,68,0.1);
+            border: 1px solid #ef4444;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            display: none;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .warning-banner.show { display: flex; }
+
+        .backtest-controls {
+            display: none;
+            margin-bottom: 1.5rem;
+        }
+
+        .backtest-controls.show { display: block; }
+
+        .control-row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .control-label {
+            display: block;
+            color: #64748b;
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+            text-transform: uppercase;
+        }
+
+        .control-input {
+            width: 100%;
+            padding: 0.5rem;
+            background: #111827;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
+
+        .backtest-notice {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: rgba(255,193,7,0.1);
+            border: 1px solid #ffc107;
+            border-radius: 6px;
+            color: #ffc107;
+            font-size: 0.85rem;
+            line-height: 1.5;
+        }
+
+        .pos-item {
+            background: #111827;
+            border: 1px solid #1e293b;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .pos-item:hover { border-color: #00d4aa; }
+
+        .pos-badge {
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .pos-badge.long { background: rgba(0,212,170,0.15); color: #00d4aa; }
+        .pos-badge.short { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+        .pos-symbol { font-weight: 700; font-size: 1rem; color: #f1f5f9; }
+
+        .pos-detail {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 0.25rem;
+        }
+
+        .pos-detail span { color: #94a3b8; font-family: monospace; }
+
+        .pos-pnl { text-align: right; }
+
+        .pos-pnl-value { font-size: 1.2rem; font-weight: 700; }
+        .pos-pnl-value.green { color: #22c55e; }
+        .pos-pnl-value.red { color: #ef4444; }
+
+        .pos-pnl-sub { font-size: 0.75rem; color: #64748b; }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        td {
+            padding: 0.875rem 1rem;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #1e293b;
+            font-family: monospace;
+        }
+
+        tr:hover { background: rgba(255,255,255,0.02); cursor: pointer; }
+
+        .dir-long { color: #00d4aa; font-weight: 700; }
+        .dir-short { color: #ef4444; font-weight: 700; }
+        .pnl-pos { color: #22c55e; font-weight: 700; }
+        .pnl-neg { color: #ef4444; font-weight: 700; }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .overlay.show { opacity: 1; pointer-events: auto; }
+
+        .explain-panel {
+            position: fixed;
+            right: -450px;
+            top: 0;
+            width: 450px;
+            height: 100vh;
+            background: #111827;
+            border-left: 1px solid #1e293b;
+            z-index: 300;
+            transition: right 0.4s ease;
+            overflow-y: auto;
+        }
+
+        .explain-panel.open { right: 0; }
+
+        .explain-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explain-title { font-size: 1.1rem; font-weight: 700; }
+
+        .explain-close {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .explain-body { padding: 1.5rem; }
+
+        .layer {
+            margin-bottom: 1.25rem;
+            padding: 1rem;
+            background: #1a1f2e;
+            border-radius: 10px;
+            border-left: 3px solid #22c55e;
+        }
+
+        .layer-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .layer-name { font-weight: 600; font-size: 0.9rem; }
+
+        .layer-status {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(34,197,94,0.15);
+            color: #22c55e;
+            text-transform: uppercase;
+        }
+
+        .layer-desc {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+
+        .layer-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .metric {
+            background: #111827;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+        }
+
+        .metric-label { color: #64748b; margin-bottom: 0.2rem; }
+        .metric-value { color: #f1f5f9; font-weight: 600; font-family: monospace; }
+
+        .empty { text-align: center; padding: 3rem; color: #475569; }
+        .empty-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+        @media (max-width: 768px) {
+            .header { flex-wrap: wrap; gap: 1rem; }
+            .mode-bar { order: 3; width: 100%; justify-content: center; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .explain-panel { width: 100%; right: -100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">Trade With Dezify</div>
+            <span class="status offline" id="botStatus">
+                <span class="status-dot"></span>
+                <span id="statusText">Offline</span>
+            </span>
+        </div>
+        
+        <div class="mode-bar">
+            <button class="mode-btn" data-mode="backtest" onclick="setMode('backtest')">📊 Backtest</button>
+            <button class="mode-btn active" data-mode="paper" onclick="setMode('paper')">📝 Paper</button>
+            <button class="mode-btn live" data-mode="live" onclick="setMode('live')">🔴 Live</button>
+        </div>
+        
+        <div style="display:flex;gap:0.75rem;align-items:center;">
+            <button class="start-btn" id="startBtn" onclick="toggleBot()">Start Bot</button>
+            <button onclick="logout()" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:1.2rem;">🚪</button>
+        </div>
+    </header>
+
+    <!-- Main -->
+    <main class="main">
+        
+        <!-- Live Warning Banner -->
+        <div class="warning-banner" id="liveWarning">
+            <span style="font-size:2rem;">⚠️</span>
+            <div>
+                <div style="font-weight:700;color:#ef4444;">LIVE TRADING MODE</div>
+                <div style="color:#94a3b8;font-size:0.85rem;">Real money at risk. Trades execute on your Bitget account.</div>
+            </div>
+        </div>
+
+        <!-- Backtest Controls -->
+        <div class="card backtest-controls" id="backtestControls">
+            <div class="card-header">
+                <div class="card-title">⚙️ Backtest Settings</div>
+            </div>
+            <div class="card-body">
+                <div class="control-row">
+                    <div class="control-group">
+                        <label class="control-label">Start Date</label>
+                        <input type="date" class="control-input" id="btStart" value="2024-01-01">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">End Date</label>
+                        <input type="date" class="control-input" id="btEnd" value="2024-12-31">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">Initial Equity ($)</label>
+                        <input type="number" class="control-input" id="btEquity" value="10000">
+                    </div>
+                </div>
+                <div class="backtest-notice">
+                    ⚠️ <strong>Backtest engine not yet implemented.</strong> A full bar-by-bar historical simulation 
+                    needs to be built. For now, paper mode uses live market data with simulated fills.
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-label">Account Equity</div>
+                <div class="stat-value" id="statEquity">$10,000.00</div>
+                <div class="stat-sub" id="equitySub">Paper trading account</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Open Positions</div>
+                <div class="stat-value" id="statPositions">0</div>
+                <div class="stat-sub">of 3 max allowed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Today's P&L</div>
+                <div class="stat-value green" id="statPnl">+$0.00</div>
+                <div class="stat-sub" id="pnlSub">0 trades today</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Win Rate</div>
+                <div class="stat-value" id="statWinRate">0%</div>
+                <div class="stat-sub" id="winSub">0W / 0L</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Avg R-Multiple</div>
+                <div class="stat-value" id="statR">0.00R</div>
+                <div class="stat-sub">per closed trade</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Risk</div>
+                <div class="stat-value" id="statRisk">0.00%</div>
+                <div class="stat-sub">of 5% max allowed</div>
+            </div>
+        </div>
+
+        <!-- Open Positions -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📈 Open Positions</div>
+                <span style="color:#64748b;font-size:0.8rem;" id="posLabel">0 active</span>
+            </div>
+            <div class="card-body" id="positionsList">
+                <div class="empty">
+                    <div class="empty-icon">📭</div>
+                    <div>No open positions</div>
+                    <div style="font-size:0.85rem;margin-top:0.5rem;">Click "Start Bot" to begin paper trading with live data</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trade History -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📋 Trade History</div>
+                <span style="color:#64748b;font-size:0.8rem;" id="tradeLabel">0 total</span>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Entry</th>
+                            <th>Exit</th>
+                            <th>P&L</th>
+                            <th>R</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeTable">
+                        <tr>
+                            <td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Explain Panel -->
+    <div class="overlay" id="overlay" onclick="closeExplain()"></div>
+    <div class="explain-panel" id="explainPanel">
+        <div class="explain-header">
+            <div class="explain-title">🔍 Why This Trade?</div>
+            <button class="explain-close" onclick="closeExplain()">×</button>
+        </div>
+        <div class="explain-body" id="explainBody"></div>
+    </div>
+
+    <script>
+        let botRunning = false;
+        let currentMode = 'paper';
+        let pollInterval = null;
+
+        function setMode(mode) {
+            currentMode = mode;
+            
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            
+            updateDashboardForMode(mode);
+            
+            fetch('/api/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode })
+            });
+            
+            fetchBalance(mode);
+        }
+
+        function updateDashboardForMode(mode) {
+            const btn = document.getElementById('startBtn');
+            const equitySub = document.getElementById('equitySub');
+            const liveWarning = document.getElementById('liveWarning');
+            const backtestControls = document.getElementById('backtestControls');
+            
+            liveWarning.classList.remove('show');
+            backtestControls.classList.remove('show');
+            
+            if (mode === 'backtest') {
+                btn.textContent = '▶️ Run Backtest';
+                btn.classList.remove('stop');
+                equitySub.textContent = 'Backtest starting equity';
+                backtestControls.classList.add('show');
+                
+            } else if (mode === 'live') {
+                btn.textContent = '⚠️ Start Live Trading';
+                btn.classList.remove('stop');
+                equitySub.textContent = 'Live Bitget Account';
+                liveWarning.classList.add('show');
+                
+            } else {
+                btn.textContent = 'Start Bot';
+                btn.classList.remove('stop');
+                equitySub.textContent = 'Paper trading account';
+            }
+        }
+
+        async function fetchBalance(mode) {
+            try {
+                const res = await fetch(`/api/balance?mode=${mode}`);
+                const data = await res.json();
+                
+                const equityEl = document.getElementById('statEquity');
+                
+                if (data.error) {
+                    equityEl.textContent = 'Error';
+                    equityEl.classList.add('red');
+                } else {
+                    equityEl.textContent = '$' + data.balance.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    });
+                    equityEl.classList.remove('red');
+                }
+            } catch (e) {
+                console.error('Balance fetch failed:', e);
+            }
+        }
+
+        async function toggleBot() {
+            const btn = document.getElementById('startBtn');
+            const status = document.getElementById('botStatus');
+            const statusText = document.getElementById('statusText');
+            
+            if (!botRunning) {
+                // START
+                try {
+                    const res = await fetch('/api/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            mode: currentMode,
+                            start_date: document.getElementById('btStart')?.value,
+                            end_date: document.getElementById('btEnd')?.value,
+                            initial_equity: parseFloat(document.getElementById('btEquity')?.value || 10000)
+                        })
+                    });
+                    const data = await res.json();
+                    
+                    if (!data.success) {
+                        alert(data.error || 'Failed to start bot');
+                        return;
+                    }
+                    
+                    botRunning = true;
+                    btn.textContent = '⏹ Stop Bot';
+                    btn.classList.add('stop');
+                    
+                    if (currentMode === 'live') {
+                        status.className = 'status live';
+                        statusText.textContent = 'LIVE TRADING';
+                    } else if (currentMode === 'paper') {
+                        status.className = 'status online';
+                        statusText.textContent = 'Paper Trading';
+                    } else {
+                        status.className = 'status online';
+                        statusText.textContent = 'Backtesting';
+                    }
+                    
+                    if (data.warning) {
+                        console.warn(data.warning);
+                    }
+                    
+                    startPolling();
+                    
+                } catch (e) {
+                    alert('Error starting bot: ' + e.message);
+                }
+                
+            } else {
+                // STOP
+                try {
+                    await fetch('/api/stop', { method: 'POST' });
+                } catch (e) {}
+                
+                botRunning = false;
+                updateDashboardForMode(currentMode);
+                status.className = 'status offline';
+                statusText.textContent = 'Offline';
+                stopPolling();
+            }
+        }
+
+        function startPolling() {
+            updateDashboard();
+            pollInterval = setInterval(updateDashboard, 3000);
+        }
+
+        function stopPolling() {
+            clearInterval(pollInterval);
+        }
+
+        async function updateDashboard() {
+            try {
+                const res = await fetch(`/api/status?mode=${currentMode}`);
+                const data = await res.json();
+                updateStats(data);
+                
+                // Update positions
+                const posRes = await fetch('/api/positions');
+                const posData = await posRes.json();
+                renderPositions(posData.positions || []);
+                
+                // Update trades
+                const tradeRes = await fetch('/api/trades');
+                const tradeData = await tradeRes.json();
+                renderTrades(tradeData.trades || []);
+                
+            } catch (e) {
+                console.error('Dashboard update error:', e);
+            }
+        }
+
+        function updateStats(data) {
+            document.getElementById('statPositions').textContent = data.open_positions || 0;
+            document.getElementById('statPnl').textContent = (data.today_pnl >= 0 ? '+' : '') + '$' + (data.today_pnl || 0).toFixed(2);
+            document.getElementById('statPnl').className = 'stat-value ' + (data.today_pnl >= 0 ? 'green' : 'red');
+            document.getElementById('pnlSub').textContent = (data.today_trades || 0) + ' trades today';
+            document.getElementById('statWinRate').textContent = (data.win_rate || 0) + '%';
+            document.getElementById('winSub').textContent = 'Check history for details';
+            document.getElementById('statR').textContent = (data.avg_r || 0).toFixed(2) + 'R';
+            document.getElementById('statRisk').textContent = (data.total_risk || 0).toFixed(2) + '%';
+            
+            // Update equity from status if available
+            if (data.equity) {
+                document.getElementById('statEquity').textContent = '$' + data.equity.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
+        }
+
+        function renderPositions(positions) {
+            const container = document.getElementById('positionsList');
+            document.getElementById('statPositions').textContent = positions.length;
+            document.getElementById('posLabel').textContent = positions.length + ' active';
+            
+            if (!positions.length) {
+                container.innerHTML = `
+                    <div class="empty">
+                        <div class="empty-icon">📭</div>
+                        <div>No open positions</div>
+                        <div style="font-size:0.85rem;margin-top:0.5rem;">${botRunning ? 'Scanning for signals...' : 'Click Start Bot to begin'}</div>
+                    </div>`;
+                return;
+            }
+            
+            container.innerHTML = positions.map(p => `
+                <div class="pos-item" onclick="showExplain('${p.id}')">
+                    <div class="pos-badge ${p.direction}">${p.direction === 'long' ? '▲' : '▼'} ${p.direction.toUpperCase()}</div>
+                    <div>
+                        <div class="pos-symbol">${p.symbol}</div>
+                        <div class="pos-detail">
+                            Entry: <span>$${p.entry_price}</span> | 
+                            SL: <span style="color:#ef4444">$${p.stop_loss}</span> | 
+                            TP: <span style="color:#22c55e">$${p.take_profit}</span>
+                        </div>
+                        <div class="pos-detail">
+                            Size: <span>${p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size}</span> | 
+                            Lev: <span>${p.leverage}x</span> | 
+                            Risk: <span>${(p.risk_pct * 100).toFixed(2)}%</span>
+                        </div>
+                    </div>
+                    <div class="pos-pnl">
+                        <div class="pos-pnl-value ${p.pnl_pct >= 0 ? 'green' : 'red'}">
+                            ${p.pnl_pct >= 0 ? '+' : ''}${p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct}%
+                        </div>
+                        <div class="pos-pnl-sub">Unrealized</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTrades(trades) {
+            const tbody = document.getElementById('tradeTable');
+            document.getElementById('tradeLabel').textContent = trades.length + ' total';
+            
+            if (!trades.length) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr>`;
+                return;
+            }
+            
+            tbody.innerHTML = trades.map(t => `
+                <tr onclick="showExplain('${t.trade_id}')">
+                    <td style="font-weight:600;">${t.symbol}</td>
+                    <td class="${t.direction === 'long' ? 'dir-long' : 'dir-short'}">${t.direction === 'long' ? '▲ LONG' : '▼ SHORT'}</td>
+                    <td>$${t.entry_price}</td>
+                    <td>${t.exit_price ? '$' + t.exit_price : '—'}</td>
+                    <td class="${t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${t.pnl >= 0 ? '+' : ''}$${t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl}</td>
+                    <td class="${t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg'}">${t.r_multiple >= 0 ? '+' : ''}${t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple}R</td>
+                </tr>
+            `).join('');
+        }
+
+        async function showExplain(tradeId) {
+            document.getElementById('overlay').classList.add('show');
+            document.getElementById('explainPanel').classList.add('open');
+            
+            try {
+                const res = await fetch('/api/trade/' + tradeId);
+                const data = await res.json();
+                renderExplain(data);
+            } catch (e) {
+                document.getElementById('explainBody').innerHTML = `
+                    <div class="empty">
+                        <div class="empty-icon">❌</div>
+                        <div>Error loading trade details</div>
+                        <div style="font-size:0.85rem;margin-top:0.5rem;">${e.message}</div>
+                    </div>`;
+            }
+        }
+
+        function renderExplain(data) {
+            if (data.error) {
+                document.getElementById('explainBody').innerHTML = `
+                    <div class="empty">
+                        <div class="empty-icon">❌</div>
+                        <div>${data.error}</div>
+                    </div>`;
+                return;
+            }
+            
+            const layers = data.layers || {};
+            const symbol = data.symbol || 'Unknown';
+            const direction = data.direction || 'long';
+            
+            let html = `
+                <div style="margin-bottom:1.5rem;padding:1rem;background:#1a1f2e;border-radius:10px;">
+                    <div style="font-size:1.2rem;font-weight:700;">${symbol} ${direction.toUpperCase()}</div>
+                    <div style="color:#64748b;font-size:0.85rem;">ID: ${data.trade_id || 'N/A'}</div>
+                </div>
+            `;
+            
+            const layerOrder = ['layer_1', 'layer_2', 'layer_3', 'layer_4', 'layer_5', 'layer_6', 'layer_7', 'layer_8'];
+            const layerIcons = ['🌊', '📈', '🎯', '⚡', '🛡️', '🔧', '📋', '📊'];
+            const layerNames = ['Market Regime', 'Trend Analysis', 'Pullback Detection', 'Entry Trigger', 
+                              'Risk Management', 'Execution', 'Trade Management', 'Performance Review'];
+            
+            layerOrder.forEach((key, i) => {
+                const l = layers[key];
+                if (!l) return;
+                html += `
+                    <div class="layer">
+                        <div class="layer-head">
+                            <div class="layer-name">${layerIcons[i]} Layer ${i+1}: ${layerNames[i]}</div>
+                            <span class="layer-status">✓ ${l.passed ? 'Passed' : 'Failed'}</span>
+                        </div>
+                        <div class="layer-desc">${l.explanation || ''}</div>
+                        ${renderMetrics(l)}
+                    </div>
+                `;
+            });
+            
+            document.getElementById('explainBody').innerHTML = html;
+        }
+
+        function renderMetrics(data) {
+            const skip = ['passed', 'explanation', 'name'];
+            const metrics = Object.entries(data).filter(([k]) => !skip.includes(k));
+            if (!metrics.length) return '';
+            
+            return `<div class="layer-metrics">` + metrics.slice(0, 4).map(([k, v]) => `
+                <div class="metric">
+                    <div class="metric-label">${k.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div class="metric-value">${typeof v === 'number' ? (v.toFixed ? v.toFixed(2) : v) : v}</div>
+                </div>
+            `).join('') + `</div>`;
+        }
+
+        function closeExplain() {
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('explainPanel').classList.remove('open');
+        }
+
+        async function logout() {
+            if (botRunning) {
+                await fetch('/api/stop', { method: 'POST' });
+            }
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.reload();
+        }
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeExplain();
+        });
+
+        // Initialize
+        fetchBalance('paper');
+    </script>
+</body>
+</html>

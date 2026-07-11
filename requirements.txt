@@ -1,0 +1,40 @@
+# Core
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Bitget API
+requests>=2.31.0
+websocket-client>=1.6.0
+
+# Data & Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Technical Indicators
+pandas-ta>=0.3.14b0
+
+# Async
+aiohttp>=3.8.0
+asyncio
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Logging & Monitoring
+structlog>=23.0.0
+
+# Utilities
+python-dateutil>=2.8.0
+pytz>=2023.3
+
+
+flask==3.0.0
+requests==2.31.0
+numpy==1.26.0
+pandas==2.1.0
+pybitget==1.0.0          # or whatever your Bitget client uses
+APScheduler==3.10.4
+python-dotenv==1.0.0
+pyngrok==7.1.0           # optional, for tunneling
+gunicorn==21.2.0         # production server

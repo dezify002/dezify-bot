@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade With Dezify</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        /* LOGIN SCREEN */
+        #loginScreen {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0a0e1a 0%, #111827 50%, #0f172a 100%);
+            z-index: 1000;
+            transition: opacity 0.8s ease;
+        }
+        
+        #loginScreen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .login-box {
+            text-align: center;
+            padding: 3rem;
+            animation: fadeInUp 1s ease;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .login-logo {
+            font-size: 3rem;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00d4aa, #00b894, #00d4aa);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shine 3s linear infinite;
+            margin-bottom: 0.5rem;
+        }
+
+        @keyframes shine {
+            to { background-position: 200% center; }
+        }
+
+        .login-sub {
+            color: #64748b;
+            font-size: 0.9rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            margin-bottom: 3rem;
+        }
+
+        .login-input {
+            width: 280px;
+            padding: 1rem 1.5rem;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid #1e293b;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1rem;
+            text-align: center;
+            letter-spacing: 0.15em;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .login-input:focus {
+            border-color: #00d4aa;
+            box-shadow: 0 0 20px rgba(0,212,170,0.2);
+        }
+
+        .login-btn {
+            display: block;
+            width: 280px;
+            margin: 1rem auto 0;
+            padding: 1rem;
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            border: none;
+            border-radius: 12px;
+            color: #0a0e1a;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0,212,170,0.3);
+        }
+
+        .login-error {
+            color: #ef4444;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .login-error.show { opacity: 1; }
+
+        /* Floating particles */
+        .particle {
+            position: fixed;
+            width: 3px;
+            height: 3px;
+            background: #00d4aa;
+            border-radius: 50%;
+            opacity: 0;
+            animation: float 10s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes float {
+            0% { opacity: 0; transform: translateY(100vh) scale(0); }
+            20% { opacity: 0.5; }
+            80% { opacity: 0.5; }
+            100% { opacity: 0; transform: translateY(-100px) scale(1); }
+        }
+
+        /* DASHBOARD */
+        #dashboard { display: none; }
+        #dashboard.active { display: block; animation: fadeIn 0.5s; }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* Header */
+        .header {
+            background: #111827;
+            border-bottom: 1px solid #1e293b;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left { display: flex; align-items: center; gap: 1rem; }
+
+        .logo-text {
+            font-size: 1.4rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #00d4aa, #00b894);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-pill.online {
+            background: rgba(34,197,94,0.15);
+            color: #22c55e;
+        }
+
+        .status-pill.offline {
+            background: rgba(239,68,68,0.15);
+            color: #ef4444;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Mode buttons */
+        .mode-bar {
+            display: flex;
+            gap: 0.5rem;
+            background: #1a1f2e;
+            padding: 0.3rem;
+            border-radius: 10px;
+            border: 1px solid #1e293b;
+        }
+
+        .mode-btn {
+            padding: 0.5rem 1.2rem;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            color: #64748b;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .mode-btn:hover { color: #e2e8f0; }
+
+        .mode-btn.active {
+            background: rgba(0,212,170,0.15);
+            color: #00d4aa;
+        }
+
+        .mode-btn.live.active {
+            background: rgba(239,68,68,0.15);
+            color: #ef4444;
+        }
+
+        .start-btn {
+            padding: 0.6rem 1.5rem;
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            border: none;
+            border-radius: 8px;
+            color: #0a0e1a;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .start-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(0,212,170,0.3);
+        }
+
+        .start-btn.stop {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: #fff;
+        }
+
+        /* Main content */
+        .main {
+            padding: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Stats cards */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: #1a1f2e;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 1.2rem;
+            transition: all 0.3s;
+        }
+
+        .stat-card:hover {
+            border-color: #00d4aa;
+            transform: translateY(-2px);
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #f1f5f9;
+        }
+
+        .stat-value.green { color: #22c55e; }
+        .stat-value.red { color: #ef4444; }
+
+        .stat-sub {
+            font-size: 0.8rem;
+            color: #475569;
+            margin-top: 0.25rem;
+        }
+
+        /* Cards */
+        .card {
+            background: #1a1f2e;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #94a3b8;
+        }
+
+        .card-body { padding: 1rem; }
+
+        /* Position list */
+        .pos-item {
+            background: #111827;
+            border: 1px solid #1e293b;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .pos-item:hover {
+            border-color: #00d4aa;
+        }
+
+        .pos-badge {
+            padding: 0.3rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .pos-badge.long {
+            background: rgba(0,212,170,0.15);
+            color: #00d4aa;
+        }
+
+        .pos-info { line-height: 1.5; }
+
+        .pos-symbol {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #f1f5f9;
+        }
+
+        .pos-detail {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+
+        .pos-detail span {
+            color: #94a3b8;
+            font-family: monospace;
+        }
+
+        .pos-pnl {
+            text-align: right;
+        }
+
+        .pos-pnl-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .pos-pnl-sub {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        /* Trade table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            font-size: 0.7rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        td {
+            padding: 0.875rem 1rem;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #1e293b;
+            font-family: monospace;
+        }
+
+        tr:hover {
+            background: rgba(255,255,255,0.02);
+            cursor: pointer;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        .dir-long { color: #00d4aa; font-weight: 700; }
+        .dir-short { color: #ef4444; font-weight: 700; }
+
+        .pnl-pos { color: #22c55e; font-weight: 700; }
+        .pnl-neg { color: #ef4444; font-weight: 700; }
+
+        /* Explain panel */
+        .explain-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .explain-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .explain-panel {
+            position: fixed;
+            right: -450px;
+            top: 0;
+            width: 450px;
+            height: 100vh;
+            background: #111827;
+            border-left: 1px solid #1e293b;
+            z-index: 300;
+            transition: right 0.4s ease;
+            overflow-y: auto;
+        }
+
+        .explain-panel.open { right: 0; }
+
+        .explain-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #1e293b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .explain-title { font-size: 1.1rem; font-weight: 700; }
+
+        .explain-close {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .explain-body { padding: 1.5rem; }
+
+        .layer {
+            margin-bottom: 1.25rem;
+            padding: 1rem;
+            background: #1a1f2e;
+            border-radius: 10px;
+            border-left: 3px solid;
+            transition: all 0.3s;
+        }
+
+        .layer.pass { border-left-color: #22c55e; }
+        .layer.fail { border-left-color: #ef4444; }
+
+        .layer-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .layer-name { font-weight: 600; font-size: 0.9rem; }
+
+        .layer-status {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .layer-status.pass {
+            background: rgba(34,197,94,0.15);
+            color: #22c55e;
+        }
+
+        .layer-status.fail {
+            background: rgba(239,68,68,0.15);
+            color: #ef4444;
+        }
+
+        .layer-desc {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            line-height: 1.6;
+        }
+
+        .layer-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .metric {
+            background: #111827;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+        }
+
+        .metric-label { color: #64748b; margin-bottom: 0.2rem; }
+        .metric-value { color: #f1f5f9; font-weight: 600; font-family: monospace; }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 3rem;
+            color: #475569;
+        }
+
+        .empty-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { flex-wrap: wrap; gap: 1rem; }
+            .mode-bar { order: 3; width: 100%; justify-content: center; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .explain-panel { width: 100%; right: -100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Floating particles -->
+    <div id="particles"></div>
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen">
+        <div class="login-box">
+            <div class="login-logo">Trade With Dezify</div>
+            <div class="login-sub">8-Layer Algorithmic Trading</div>
+            <input type="password" class="login-input" id="password" placeholder="Enter password" onkeypress="if(event.key==='Enter')login()">
+            <button class="login-btn" onclick="login()">Unlock Dashboard</button>
+            <div class="login-error" id="loginError">Incorrect password</div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard">
+        
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo-text">Trade With Dezify</div>
+                <span class="status-pill offline" id="botStatus">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Offline</span>
+                </span>
+            </div>
+            
+            <div class="mode-bar">
+                <button class="mode-btn" data-mode="backtest" onclick="setMode('backtest')">📊 Backtest</button>
+                <button class="mode-btn active" data-mode="paper" onclick="setMode('paper')">📝 Paper</button>
+                <button class="mode-btn live" data-mode="live" onclick="setMode('live')">🔴 Live</button>
+            </div>
+            
+            <button class="start-btn" id="startBtn" onclick="toggleBot()">Start Bot</button>
+        </header>
+
+        <!-- Main -->
+        <main class="main">
+            
+            <!-- Stats -->
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-label">Account Equity</div>
+                    <div class="stat-value" id="equityVal">$10,000.00</div>
+                    <div class="stat-sub">Starting balance</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Open Positions</div>
+                    <div class="stat-value" id="posCount">0</div>
+                    <div class="stat-sub">of 3 max allowed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Today's P&L</div>
+                    <div class="stat-value green" id="pnlVal">+$0.00</div>
+                    <div class="stat-sub" id="pnlSub">0 trades today</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Win Rate</div>
+                    <div class="stat-value" id="winRate">0%</div>
+                    <div class="stat-sub" id="winSub">0W / 0L</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Avg R-Multiple</div>
+                    <div class="stat-value" id="avgR">0.00R</div>
+                    <div class="stat-sub">per closed trade</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Risk</div>
+                    <div class="stat-value" id="riskVal">0.00%</div>
+                    <div class="stat-sub">of 5% max allowed</div>
+                </div>
+            </div>
+
+            <!-- Open Positions -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📈 Open Positions</div>
+                    <span style="color:#64748b;font-size:0.8rem;" id="posLabel">0 active</span>
+                </div>
+                <div class="card-body" id="positionsList">
+                    <div class="empty">
+                        <div class="empty-icon">📭</div>
+                        <div>No open positions</div>
+                        <div style="font-size:0.85rem;margin-top:0.5rem;">Click "Start Bot" to begin paper trading</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trade History -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📋 Trade History</div>
+                    <span style="color:#64748b;font-size:0.8rem;" id="tradeLabel">0 total</span>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>P&L</th>
+                                <th>R</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeTable">
+                            <tr>
+                                <td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet. Start the bot to see live trades.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Explain Panel -->
+    <div class="explain-overlay" id="overlay" onclick="closeExplain()"></div>
+    <div class="explain-panel" id="explainPanel">
+        <div class="explain-header">
+            <div class="explain-title">🔍 Why This Trade?</div>
+            <button class="explain-close" onclick="closeExplain()">×</button>
+        </div>
+        <div class="explain-body" id="explainBody"></div>
+    </div>
+
+    <script>
+        // Create floating particles
+        for (let i = 0; i < 25; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.animationDelay = Math.random() * 10 + 's';
+            p.style.animationDuration = (8 + Math.random() * 6) + 's';
+            document.getElementById('particles').appendChild(p);
+        }
+
+        // State
+        let botRunning = false;
+        let currentMode = 'paper';
+        let positions = [];
+        let trades = [];
+        let updateTimer = null;
+
+        // Login
+        function login() {
+            const pw = document.getElementById('password').value;
+            if (pw === 'Adebayo') {
+                document.getElementById('loginScreen').classList.add('hidden');
+                setTimeout(() => {
+                    document.getElementById('dashboard').classList.add('active');
+                }, 400);
+            } else {
+                const err = document.getElementById('loginError');
+                err.classList.add('show');
+                setTimeout(() => err.classList.remove('show'), 2000);
+            }
+        }
+
+        // Mode switching
+        function setMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            
+            const btn = document.getElementById('startBtn');
+            if (mode === 'backtest') btn.textContent = 'Run Backtest';
+            else if (mode === 'live') btn.textContent = '⚠️ Start Live';
+            else btn.textContent = 'Start Bot';
+        }
+
+        // Toggle bot
+        function toggleBot() {
+            botRunning = !botRunning;
+            const btn = document.getElementById('startBtn');
+            const status = document.getElementById('botStatus');
+            const statusText = document.getElementById('statusText');
+            
+            if (botRunning) {
+                btn.textContent = 'Stop Bot';
+                btn.classList.add('stop');
+                status.className = 'status-pill online';
+                statusText.textContent = currentMode === 'paper' ? 'Paper Trading' : 
+                                        currentMode === 'live' ? 'LIVE' : 'Backtesting';
+                startSimulation();
+            } else {
+                btn.textContent = currentMode === 'backtest' ? 'Run Backtest' : 
+                                  currentMode === 'live' ? '⚠️ Start Live' : 'Start Bot';
+                btn.classList.remove('stop');
+                status.className = 'status-pill offline';
+                statusText.textContent = 'Offline';
+                stopSimulation();
+            }
+        }
+
+        // Simulate live trading with demo data
+        function startSimulation() {
+            // Add demo positions immediately
+            addDemoPositions();
+            
+            // Simulate new trades coming in
+            updateTimer = setInterval(() => {
+                if (Math.random() > 0.7 && positions.length < 3) {
+                    addRandomPosition();
+                }
+                updatePrices();
+            }, 5000);
+        }
+
+        function stopSimulation() {
+            clearInterval(updateTimer);
+        }
+
+        function addDemoPositions() {
+            positions = [
+                {
+                    id: 'demo1',
+                    symbol: 'AAVEUSDT',
+                    direction: 'long',
+                    entryPrice: 96.50,
+                    currentPrice: 97.20,
+                    stopLoss: 93.07,
+                    takeProfit: 106.80,
+                    size: 29.124,
+                    leverage: 1,
+                    riskPct: 0.01,
+                    entryTime: new Date().toISOString()
+                },
+                {
+                    id: 'demo2',
+                    symbol: 'DOTUSDT',
+                    direction: 'long',
+                    entryPrice: 0.878,
+                    currentPrice: 0.881,
+                    stopLoss: 0.854,
+                    takeProfit: 0.950,
+                    size: 4166.667,
+                    leverage: 1,
+                    riskPct: 0.01,
+                    entryTime: new Date().toISOString()
+                }
+            ];
+            renderPositions();
+            updateStats();
+        }
+
+        function addRandomPosition() {
+            const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'LINKUSDT', 'UNIUSDT'];
+            const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+            const price = Math.random() * 100 + 10;
+            
+            const pos = {
+                id: 'trade_' + Date.now(),
+                symbol: symbol,
+                direction: 'long',
+                entryPrice: price,
+                currentPrice: price * 1.002,
+                stopLoss: price * 0.95,
+                takeProfit: price * 1.15,
+                size: Math.random() * 50 + 10,
+                leverage: 1,
+                riskPct: 0.01,
+                entryTime: new Date().toISOString()
+            };
+            
+            positions.push(pos);
+            renderPositions();
+            updateStats();
+        }
+
+        function updatePrices() {
+            positions.forEach(p => {
+                const change = (Math.random() - 0.4) * 0.02; // Slight upward bias
+                p.currentPrice = p.currentPrice * (1 + change);
+            });
+            renderPositions();
+        }
+
+        function renderPositions() {
+            const container = document.getElementById('positionsList');
+            document.getElementById('posCount').textContent = positions.length;
+            document.getElementById('posLabel').textContent = positions.length + ' active';
+            
+            if (!positions.length) {
+                container.innerHTML = `
+                    <div class="empty">
+                        <div class="empty-icon">📭</div>
+                        <div>No open positions</div>
+                    </div>`;
+                return;
+            }
+            
+            container.innerHTML = positions.map(p => {
+                const pnl = ((p.currentPrice - p.entryPrice) / p.entryPrice) * 100;
+                const pnlClass = pnl >= 0 ? 'green' : 'red';
+                const pnlSign = pnl >= 0 ? '+' : '';
+                
+                return `
+                    <div class="pos-item" onclick="showExplain('${p.id}')">
+                        <div class="pos-badge ${p.direction}">▲ LONG</div>
+                        <div class="pos-info">
+                            <div class="pos-symbol">${p.symbol}</div>
+                            <div class="pos-detail">
+                                Entry: <span>$${p.entryPrice.toFixed(4)}</span> | 
+                                SL: <span style="color:#ef4444">$${p.stopLoss.toFixed(4)}</span> | 
+                                TP: <span style="color:#22c55e">$${p.takeProfit.toFixed(4)}</span>
+                            </div>
+                            <div class="pos-detail">
+                                Size: <span>${p.size.toFixed(3)}</span> | 
+                                Lev: <span>${p.leverage}x</span> | 
+                                Risk: <span>${(p.riskPct*100).toFixed(2)}%</span>
+                            </div>
+                        </div>
+                        <div class="pos-pnl">
+                            <div class="pos-pnl-value ${pnlClass}">${pnlSign}${pnl.toFixed(2)}%</div>
+                            <div class="pos-pnl-sub">Unrealized</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateStats() {
+            const totalRisk = positions.reduce((sum, p) => sum + p.riskPct, 0);
+            document.getElementById('riskVal').textContent = (totalRisk * 100).toFixed(2) + '%';
+            
+            // Simulate some closed trades for stats
+            if (trades.length === 0) {
+                trades = [
+                    { symbol: 'BTCUSDT', direction: 'long', entry: 67500, exit: 68900, pnl: 450, r: 2.1 },
+                    { symbol: 'ETHUSDT', direction: 'short', entry: 3520, exit: 3480, pnl: 120, r: 1.5 },
+                    { symbol: 'SOLUSDT', direction: 'long', entry: 145, exit: 138, pnl: -180, r: -1.0 },
+                ];
+                renderTrades();
+            }
+            
+            const wins = trades.filter(t => t.pnl > 0).length;
+            const total = trades.length;
+            const winRate = total ? Math.round((wins/total)*100) : 0;
+            const totalPnl = trades.reduce((s,t) => s + t.pnl, 0);
+            const avgR = total ? (trades.reduce((s,t) => s + t.r, 0) / total).toFixed(2) : '0.00';
+            
+            document.getElementById('winRate').textContent = winRate + '%';
+            document.getElementById('winSub').textContent = wins + 'W / ' + (total-wins) + 'L';
+            document.getElementById('pnlVal').textContent = (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(2);
+            document.getElementById('pnlVal').className = 'stat-value ' + (totalPnl >= 0 ? 'green' : 'red');
+            document.getElementById('avgR').textContent = avgR + 'R';
+        }
+
+        function renderTrades() {
+            const tbody = document.getElementById('tradeTable');
+            document.getElementById('tradeLabel').textContent = trades.length + ' total';
+            
+            tbody.innerHTML = trades.map(t => `
+                <tr onclick="showExplain('${t.symbol}')">
+                    <td style="font-weight:600;">${t.symbol}</td>
+                    <td class="${t.direction==='long'?'dir-long':'dir-short'}">${t.direction==='long'?'▲ LONG':'▼ SHORT'}</td>
+                    <td>$${t.entry}</td>
+                    <td>$${t.exit}</td>
+                    <td class="${t.pnl>=0?'pnl-pos':'pnl-neg'}">${t.pnl>=0?'+':''}$${t.pnl.toFixed(2)}</td>
+                    <td class="${t.r>=0?'pnl-pos':'pnl-neg'}">${t.r>=0?'+':''}${t.r.toFixed(2)}R</td>
+                </tr>
+            `).join('');
+        }
+
+        // Explainability panel
+        function showExplain(tradeId) {
+            document.getElementById('overlay').classList.add('show');
+            document.getElementById('explainPanel').classList.add('open');
+            
+            const isAAVE = tradeId === 'demo1' || tradeId.includes('AAVE');
+            const symbol = isAAVE ? 'AAVEUSDT' : tradeId.includes('DOT') ? 'DOTUSDT' : tradeId;
+            const entry = isAAVE ? 96.50 : 0.878;
+            const sl = isAAVE ? 93.07 : 0.854;
+            const tp = isAAVE ? 106.80 : 0.950;
+            
+            document.getElementById('explainBody').innerHTML = `
+                <div style="margin-bottom:1.5rem;padding:1rem;background:#1a1f2e;border-radius:10px;">
+                    <div style="font-size:1.2rem;font-weight:700;">${symbol} LONG</div>
+                    <div style="color:#64748b;font-size:0.85rem;margin-top:0.25rem;">ID: ${tradeId}</div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">🌊 Layer 1: Market Regime</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Market is in a strong trending regime. ADX reads 28.8 (above 25 threshold). ATR% is 2.36% showing healthy volatility. 24h volume is $11.7M (above $5M minimum).</div>
+                    <div class="layer-metrics">
+                        <div class="metric"><div class="metric-label">ADX</div><div class="metric-value">28.8</div></div>
+                        <div class="metric"><div class="metric-label">ATR%</div><div class="metric-value">2.36%</div></div>
+                        <div class="metric"><div class="metric-label">Volume</div><div class="metric-value">$11.7M</div></div>
+                        <div class="metric"><div class="metric-label">Regime</div><div class="metric-value">Trending</div></div>
+                    </div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">📈 Layer 2: Trend Analysis</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Both daily and 4H timeframes show aligned uptrend. EMA(9) > EMA(21) on both timeframes. Trend score: 1.0 (maximum). Price above both EMAs confirms bullish structure.</div>
+                    <div class="layer-metrics">
+                        <div class="metric"><div class="metric-label">Daily Trend</div><div class="metric-value">UP</div></div>
+                        <div class="metric"><div class="metric-label">4H Trend</div><div class="metric-value">UP</div></div>
+                        <div class="metric"><div class="metric-label">Score</div><div class="metric-value">1.0</div></div>
+                        <div class="metric"><div class="metric-label">Mode</div><div class="metric-value">Soft</div></div>
+                    </div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">🎯 Layer 3: Pullback Detection</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Price pulled back 1.78% from recent high, landing in the valid pullback zone (0.5% - 3.0%). The retracement touched the 4H EMA(21) support before bouncing — classic pullback structure.</div>
+                    <div class="layer-metrics">
+                        <div class="metric"><div class="metric-label">Pullback Depth</div><div class="metric-value">1.78%</div></div>
+                        <div class="metric"><div class="metric-label">Min Required</div><div class="metric-value">0.50%</div></div>
+                        <div class="metric"><div class="metric-label">Max Allowed</div><div class="metric-value">3.00%</div></div>
+                        <div class="metric"><div class="metric-label">Support</div><div class="metric-value">EMA(21)</div></div>
+                    </div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">⚡ Layer 4: Entry Trigger</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Entry triggered when price closed back above EMA(9) after the pullback. Stop loss placed at 1.5x ATR below entry. Take profit set at 3R (3x risk distance) for 3:1 reward-to-risk ratio.</div>
+                    <div class="layer-metrics">
+                        <div class="metric"><div class="metric-label">Entry</div><div class="metric-value">$${entry}</div></div>
+                        <div class="metric"><div class="metric-label">Stop Loss</div><div class="metric-value">$${sl}</div></div>
+                        <div class="metric"><div class="metric-label">Take Profit</div><div class="metric-value">$${tp}</div></div>
+                        <div class="metric"><div class="metric-label">R:R Ratio</div><div class="metric-value">3.0</div></div>
+                    </div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">🛡️ Layer 5: Risk Management</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Position sized to risk exactly 1.00% of account equity ($100). With 1x leverage, position value is $2,810. Total portfolio risk is now 2.00% (2 positions × 1% each), under the 5% maximum.</div>
+                    <div class="layer-metrics">
+                        <div class="metric"><div class="metric-label">Risk %</div><div class="metric-value">1.00%</div></div>
+                        <div class="metric"><div class="metric-label">Risk $</div><div class="metric-value">$100</div></div>
+                        <div class="metric"><div class="metric-label">Leverage</div><div class="metric-value">1x</div></div>
+                        <div class="metric"><div class="metric-label">Portfolio Risk</div><div class="metric-value">2.00%</div></div>
+                    </div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">🔧 Layer 6: Execution</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Paper trade executed at limit price with zero slippage. Order filled immediately in simulation mode.</div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">📋 Layer 7: Trade Management</div>
+                        <span class="layer-status pass">✓ Passed</span>
+                    </div>
+                    <div class="layer-desc">Standard stop loss in place. Break-even trigger will activate at 1R (when price moves 1x risk distance in favor). No trailing stop configured for this trade.</div>
+                </div>
+                
+                <div class="layer pass">
+                    <div class="layer-head">
+                        <div class="layer-name">📊 Layer 8: Review</div>
+                        <span class="layer-status pass">✓ Active</span>
+                    </div>
+                    <div class="layer-desc">Trade is currently open and being monitored. Will review upon exit for performance analytics and regime-specific breakdown.</div>
+                </div>
+            `;
+        }
+
+        function closeExplain() {
+            document.getElementById('overlay').classList.remove('show');
+            document.getElementById('explainPanel').classList.remove('open');
+        }
+
+        // Close panel on Escape key
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeExplain();
+        });
+    </script>
+</body>
+</html>
