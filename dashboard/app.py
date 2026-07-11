@@ -1,6 +1,6 @@
 """
 Trade With Dezify - Flask Dashboard
-BULLETPROOF VERSION - Never gets stuck in "already running"
+PID-BASED STATE - Single source of truth across all devices/workers
 """
 
 import os
@@ -8,6 +8,8 @@ import sys
 import threading
 import time
 import traceback
+import json
+import psutil
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -19,7 +21,7 @@ from flask import Flask, render_template, jsonify, request, session
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = "dezify_secret_key_2026"
 
-PASSWORD = "Adebayo"
+PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
 
 # =============================================================================
 # REAL BOT IMPORTS
@@ -43,6 +45,88 @@ except Exception as e:
     print(f"⚠️ Backtest engine not available: {e}")
     BACKTEST_AVAILABLE = False
     BacktestEngine = None  # type: ignore
+
+
+# =============================================================================
+# SINGLE SOURCE OF TRUTH: PID FILE
+# =============================================================================
+# All workers read/write this file. No in-memory state for "running" status.
+
+PID_FILE = Path("data/bot.pid")
+STATE_FILE = Path("data/bot_state.json")
+
+
+def _read_pid_file() -> Optional[int]:
+    """Read PID from file. Returns None if no file or invalid."""
+    try:
+        if PID_FILE.exists():
+            with open(PID_FILE, "r") as f:
+                data = json.load(f)
+                return data.get("pid")
+    except Exception:
+        pass
+    return None
+
+
+def _write_pid_file(pid: int, mode: str = "paper"):
+    """Write PID and metadata to file."""
+    try:
+        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(PID_FILE, "w") as f:
+            json.dump({
+                "pid": pid,
+                "mode": mode,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }, f)
+    except Exception as e:
+        print(f"Failed to write PID file: {e}")
+
+
+def _delete_pid_file():
+    """Remove PID file."""
+    try:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+    except Exception:
+        pass
+
+
+def _is_pid_alive(pid: Optional[int]) -> bool:
+    """Check if a process with this PID actually exists and is running."""
+    if pid is None:
+        return False
+    try:
+        process = psutil.Process(pid)
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        return False
+
+
+def _is_bot_running() -> bool:
+    """
+    SINGLE SOURCE OF TRUTH.
+    Check PID file -> verify process is alive.
+    This works across ALL devices and ALL workers.
+    """
+    pid = _read_pid_file()
+    if pid is None:
+        return False
+    if _is_pid_alive(pid):
+        return True
+    # PID file exists but process is dead — stale file
+    _delete_pid_file()
+    return False
+
+
+def _get_bot_info() -> Dict:
+    """Get bot info from PID file if running."""
+    try:
+        if PID_FILE.exists():
+            with open(PID_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
 
 
 # =============================================================================
@@ -194,265 +278,198 @@ def _is_demo_mode() -> bool:
 
 
 # =============================================================================
-# GLOBAL STATE - BULLETPROOF VERSION
+# IN-MEMORY STATE (per-worker, for strategy cache only — NOT for "running" status)
 # =============================================================================
-class BotState:
-    """Thread-safe state container with dead thread detection."""
+_strategy = None
+_bot_thread = None
+_mode = "paper"
+_cycle_count = 0
+_last_cycle_time = None
+_last_error = None
+_backtest_result = None
+_positions_cache = []
+_trades_cache = []
+_stats_cache = {
+    "equity": 10000.0,
+    "open_positions": 0,
+    "today_pnl": 0.0,
+    "today_trades": 0,
+    "win_rate": 0.0,
+    "avg_r": 0.0,
+    "total_risk": 0.0,
+}
+_scan_log = []
 
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.strategy = None
-        self.bot_thread = None
-        self.running = False
-        self.mode = "paper"
-        self.cycle_count = 0
-        self.last_cycle_time = None
-        self.last_error = None
-        self.backtest_result = None
-        self.positions_cache = []
-        self.trades_cache = []
-        self.stats_cache = {
-            "equity": 10000.0,
-            "open_positions": 0,
-            "today_pnl": 0.0,
-            "today_trades": 0,
-            "win_rate": 0.0,
-            "avg_r": 0.0,
-            "total_risk": 0.0,
-        }
-        self.scan_log = []
 
-    def is_thread_alive(self):
-        """Check if the bot thread is actually running."""
-        try:
-            with self.lock:
-                return self.bot_thread is not None and self.bot_thread.is_alive()
-        except Exception:
-            return False
-
-    def reset_if_dead(self):
-        """Reset state if thread died unexpectedly."""
-        try:
-            with self.lock:
-                if self.running and (self.bot_thread is None or not self.bot_thread.is_alive()):
-                    print("⚠️ DETECTED DEAD THREAD - Auto-resetting state")
-                    self.running = False
-                    self.strategy = None
-                    self.bot_thread = None
-                    if not self.last_error:
-                        self.last_error = "Bot thread died. Click Start Bot to restart."
-                    return True
-        except Exception:
-            pass
+def _is_thread_alive() -> bool:
+    """Check if local bot thread is alive."""
+    if _bot_thread is None:
+        return False
+    try:
+        return _bot_thread.is_alive()
+    except Exception:
         return False
 
-    def force_reset(self):
-        """Force reset all state - used when user clicks Force Restart."""
+
+def _update_from_strategy():
+    global _strategy, _positions_cache, _stats_cache
+    if not _strategy:
+        return
+    _positions_cache = []
+    seen_symbols = set()
+    for symbol, pos in _strategy.open_positions.items():
+        if symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        signal = pos["signal"]
+        current_price = 0
         try:
-            with self.lock:
-                self.running = False
-                self.strategy = None
-                self.bot_thread = None
-                self.cycle_count = 0
-                self.last_error = None
-                self.last_cycle_time = None
-                self.scan_log = []
-                print("🔄 State force-reset by user")
-        except Exception:
-            self.running = False
-            self.strategy = None
-            self.bot_thread = None
-
-    def update_from_strategy(self):
-        if not self.strategy:
-            return
-        with self.lock:
-            self.positions_cache = []
-            seen_symbols = set()
-            for symbol, pos in self.strategy.open_positions.items():
-                if symbol in seen_symbols:
-                    continue
-                seen_symbols.add(symbol)
-                signal = pos["signal"]
-                current_price = 0
-                try:
-                    current_price = self.strategy.market_data.get_latest_price(symbol) or signal.entry_price
-                except:
-                    current_price = signal.entry_price
-                pnl_pct = 0
-                if signal.direction == "long" and signal.entry_price > 0:
-                    pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
-                elif signal.direction == "short" and signal.entry_price > 0:
-                    pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
-                self.positions_cache.append({
-                    "id": pos["trade_id"],
-                    "symbol": symbol,
-                    "direction": signal.direction,
-                    "entry_price": signal.entry_price,
-                    "current_price": current_price,
-                    "stop_loss": signal.stop_loss,
-                    "take_profit": signal.take_profit,
-                    "position_size": signal.position_size,
-                    "position_value": signal.position_value,
-                    "leverage": signal.leverage,
-                    "risk_pct": signal.risk_pct,
-                    "pnl_pct": round(pnl_pct, 2),
-                    "entry_time": pos["entry_time"].isoformat() if pos.get("entry_time") else datetime.now(timezone.utc).isoformat(),
-                    "r_multiple": round((current_price - signal.entry_price) / (signal.entry_price - signal.stop_loss), 2) if signal.direction == "long" and signal.entry_price != signal.stop_loss else 0,
-                })
-            self.stats_cache["open_positions"] = len(self.positions_cache)
-            self.stats_cache["total_risk"] = sum(p["risk_pct"] for p in self.positions_cache) * 100
-
-    def update_from_database(self):
-        try:
-            db = Database()
-            with self.lock:
-                all_trades = db.get_all_trades(limit=100)
-                self.trades_cache = []
-                for t in all_trades:
-                    self.trades_cache.append({
-                        "trade_id": t.trade_id,
-                        "symbol": t.symbol,
-                        "direction": t.direction,
-                        "entry_price": t.entry_price,
-                        "exit_price": t.exit_price,
-                        "pnl": round(t.realized_pnl, 2),
-                        "pnl_pct": round(t.realized_pnl_pct * 100, 2),
-                        "r_multiple": round(t.r_multiple, 2),
-                        "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-                        "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-                        "regime": t.market_regime,
-                        "exit_reason": t.checklist.exit_reason if t.checklist else "",
-                    })
-                closed = [t for t in all_trades if t.is_closed()]
-                today = datetime.now(timezone.utc).date()
-                today_trades = [t for t in closed if t.exit_time and t.exit_time.date() == today]
-                total_pnl = sum(t.realized_pnl for t in today_trades)
-                winners = sum(1 for t in closed if t.is_winner())
-                total_closed = len(closed)
-                win_rate = (winners / total_closed * 100) if total_closed > 0 else 0
-                avg_r = sum(t.r_multiple for t in closed) / len(closed) if closed else 0
-                latest_perf = db.get_daily_performance(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-                equity = latest_perf.ending_equity if latest_perf else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
-                self.stats_cache.update({
-                    "equity": round(equity, 2),
-                    "today_pnl": round(total_pnl, 2),
-                    "today_trades": len(today_trades),
-                    "win_rate": round(win_rate, 1),
-                    "avg_r": round(avg_r, 2),
-                })
-        except Exception as e:
-            print(f"Database update error: {e}")
-
-    def get_safe_state(self):
-        try:
-            with self.lock:
-                return {
-                    "running": self.running,
-                    "mode": self.mode,
-                    "cycle_count": self.cycle_count,
-                    "last_cycle_time": self.last_cycle_time,
-                    "last_error": self.last_error,
-                    "positions": list(self.positions_cache),
-                    "trades": list(self.trades_cache),
-                    "stats": dict(self.stats_cache),
-                    "scan_log": list(self.scan_log),
-                    "thread_alive": self.bot_thread is not None and self.bot_thread.is_alive(),
-                }
-        except Exception:
-            return {
-                "running": False,
-                "mode": self.mode,
-                "cycle_count": 0,
-                "last_cycle_time": None,
-                "last_error": "State error",
-                "positions": [],
-                "trades": [],
-                "stats": {},
-                "scan_log": [],
-                "thread_alive": False,
-            }
+            current_price = _strategy.market_data.get_latest_price(symbol) or signal.entry_price
+        except:
+            current_price = signal.entry_price
+        pnl_pct = 0
+        if signal.direction == "long" and signal.entry_price > 0:
+            pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
+        elif signal.direction == "short" and signal.entry_price > 0:
+            pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
+        _positions_cache.append({
+            "id": pos["trade_id"],
+            "symbol": symbol,
+            "direction": signal.direction,
+            "entry_price": signal.entry_price,
+            "current_price": current_price,
+            "stop_loss": signal.stop_loss,
+            "take_profit": signal.take_profit,
+            "position_size": signal.position_size,
+            "position_value": signal.position_value,
+            "leverage": signal.leverage,
+            "risk_pct": signal.risk_pct,
+            "pnl_pct": round(pnl_pct, 2),
+            "entry_time": pos["entry_time"].isoformat() if pos.get("entry_time") else datetime.now(timezone.utc).isoformat(),
+            "r_multiple": round((current_price - signal.entry_price) / (signal.entry_price - signal.stop_loss), 2) if signal.direction == "long" and signal.entry_price != signal.stop_loss else 0,
+        })
+    _stats_cache["open_positions"] = len(_positions_cache)
+    _stats_cache["total_risk"] = sum(p["risk_pct"] for p in _positions_cache) * 100
 
 
-STATE = BotState()
+def _update_from_database():
+    global _trades_cache, _stats_cache
+    try:
+        db = Database()
+        all_trades = db.get_all_trades(limit=100)
+        _trades_cache = []
+        for t in all_trades:
+            _trades_cache.append({
+                "trade_id": t.trade_id,
+                "symbol": t.symbol,
+                "direction": t.direction,
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "pnl": round(t.realized_pnl, 2),
+                "pnl_pct": round(t.realized_pnl_pct * 100, 2),
+                "r_multiple": round(t.r_multiple, 2),
+                "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                "regime": t.market_regime,
+                "exit_reason": t.checklist.exit_reason if t.checklist else "",
+            })
+        closed = [t for t in all_trades if t.is_closed()]
+        today = datetime.now(timezone.utc).date()
+        today_trades = [t for t in closed if t.exit_time and t.exit_time.date() == today]
+        total_pnl = sum(t.realized_pnl for t in today_trades)
+        winners = sum(1 for t in closed if t.is_winner())
+        total_closed = len(closed)
+        win_rate = (winners / total_closed * 100) if total_closed > 0 else 0
+        avg_r = sum(t.r_multiple for t in closed) / len(closed) if closed else 0
+        latest_perf = db.get_daily_performance(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        equity = latest_perf.ending_equity if latest_perf else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
+        _stats_cache.update({
+            "equity": round(equity, 2),
+            "today_pnl": round(total_pnl, 2),
+            "today_trades": len(today_trades),
+            "win_rate": round(win_rate, 1),
+            "avg_r": round(avg_r, 2),
+        })
+    except Exception as e:
+        print(f"Database update error: {e}")
 
 
 # =============================================================================
-# BOT THREAD - WITH FULL ERROR HANDLING
+# BOT THREAD
 # =============================================================================
 def _bot_loop_paper():
-    """Paper trading loop - bulletproof version."""
-    STATE.last_error = None
+    global _strategy, _cycle_count, _last_cycle_time, _last_error, _scan_log
+    _last_error = None
     try:
         print("🚀 Bot thread starting...")
-        STATE.strategy = TrendPullbackStrategy()
+        _strategy = TrendPullbackStrategy()
         print("✅ Strategy created")
-        STATE.strategy.refresh_universe()
-        print(f"✅ Universe refreshed: {len(STATE.strategy.universe)} symbols")
+        _strategy.refresh_universe()
+        print(f"✅ Universe refreshed: {len(_strategy.universe)} symbols")
 
-        while STATE.running:
-            STATE.cycle_count += 1
-            STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
-            print(f"🔄 Cycle {STATE.cycle_count} starting...")
+        while _is_bot_running():
+            _cycle_count += 1
+            _last_cycle_time = datetime.now(timezone.utc).isoformat()
+            print(f"🔄 Cycle {_cycle_count} starting...")
 
             try:
-                result = STATE.strategy.run_cycle()
-                print(f"✅ Cycle {STATE.cycle_count} complete: {result}")
+                result = _strategy.run_cycle()
+                print(f"✅ Cycle {_cycle_count} complete: {result}")
             except Exception as e:
-                STATE.last_error = f"Cycle error: {str(e)}"
+                _last_error = f"Cycle error: {str(e)}"
                 print(f"❌ Cycle error: {e}")
                 traceback.print_exc()
 
-            STATE.update_from_strategy()
-            STATE.update_from_database()
+            _update_from_strategy()
+            _update_from_database()
 
-            if hasattr(STATE.strategy, 'universe') and STATE.strategy.universe:
+            if hasattr(_strategy, 'universe') and _strategy.universe:
                 scan_entry = {
-                    "cycle": STATE.cycle_count,
+                    "cycle": _cycle_count,
                     "time": datetime.now(timezone.utc).isoformat(),
-                    "universe_size": len(STATE.strategy.universe),
-                    "open_positions": list(STATE.strategy.open_positions.keys()),
+                    "universe_size": len(_strategy.universe),
+                    "open_positions": list(_strategy.open_positions.keys()),
                     "exits": result.get("exits", 0) if 'result' in dir() else 0,
                     "entries": result.get("entries", 0) if 'result' in dir() else 0,
                 }
-                STATE.scan_log.append(scan_entry)
-                STATE.scan_log = STATE.scan_log[-20:]
+                _scan_log.append(scan_entry)
+                _scan_log = _scan_log[-20:]
 
             print(f"⏳ Sleeping 60s...")
             time.sleep(60)
 
     except Exception as e:
-        STATE.last_error = f"Bot thread crashed: {str(e)}"
+        _last_error = f"Bot thread crashed: {str(e)}"
         print(f"💥 Bot thread crashed: {e}")
         traceback.print_exc()
     finally:
-        STATE.running = False
-        STATE.strategy = None
-        print("🛑 Bot thread ended")
+        _delete_pid_file()
+        _strategy = None
+        print("🛑 Bot thread ended, PID file removed")
 
 
 def _bot_loop_backtest(start_date, end_date, initial_equity):
-    STATE.last_error = None
+    global _cycle_count, _last_cycle_time, _last_error, _backtest_result
+    _last_error = None
     try:
         if not BACKTEST_AVAILABLE or BacktestEngine is None:
-            STATE.last_error = "Backtest engine not available."
-            STATE.running = False
+            _last_error = "Backtest engine not available."
+            _delete_pid_file()
             return
         engine = BacktestEngine(start_date, end_date, initial_equity)
         result = engine.run()
-        STATE.update_from_backtest(result)
-        STATE.cycle_count = 1
-        STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
-        STATE.running = False
+        _backtest_result = result
+        _cycle_count = 1
+        _last_cycle_time = datetime.now(timezone.utc).isoformat()
     except Exception as e:
-        STATE.last_error = str(e)
+        _last_error = str(e)
         print(f"Backtest error: {e}")
     finally:
-        STATE.running = False
+        _delete_pid_file()
 
 
 # =============================================================================
-# FLASK ROUTES - BULLETPROOF VERSION
+# FLASK ROUTES
 # =============================================================================
 
 @app.route("/")
@@ -479,91 +496,99 @@ def logout():
 
 @app.route("/api/mode", methods=["POST"])
 def set_mode():
+    global _mode
     data = request.get_json()
-    mode = data.get("mode", "paper")
-    STATE.mode = mode
-    return jsonify({"success": True, "mode": mode})
+    _mode = data.get("mode", "paper")
+    return jsonify({"success": True, "mode": _mode})
 
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
-    """Start the bot - NEVER gets stuck."""
-    # BULLETPROOF: Always check and reset dead threads first
-    was_reset = STATE.reset_if_dead()
+    global _mode, _bot_thread
 
-    if STATE.running and STATE.is_thread_alive():
+    # === SINGLE SOURCE OF TRUTH: Check PID file + process alive ===
+    if _is_bot_running():
+        info = _get_bot_info()
         return jsonify({
             "success": False,
             "error": "Bot already running",
-            "thread_alive": True,
-            "cycle_count": STATE.cycle_count,
-        }), 400
+            "message": f"Bot is already running (PID {info.get('pid')}, started {info.get('started_at', 'unknown')})",
+            "already_running": True,
+            "pid": info.get("pid"),
+            "started_at": info.get("started_at"),
+        }), 409  # 409 Conflict = resource already exists
 
-    # Full reset for fresh start
-    STATE.force_reset()
-    STATE.running = True
+    # Clean up any stale PID file
+    _delete_pid_file()
 
     data = request.get_json() or {}
-    mode = data.get("mode", STATE.mode)
-    STATE.mode = mode
+    _mode = data.get("mode", _mode)
 
-    if mode == "backtest":
+    if _mode == "backtest":
         if not BACKTEST_AVAILABLE:
-            STATE.running = False
             return jsonify({"success": False, "error": "Backtest engine not available."}), 503
         start_date = data.get("start_date", "2024-01-01")
         end_date = data.get("end_date", "2024-12-31")
         initial_equity = float(data.get("initial_equity", 10000))
-        STATE.bot_thread = threading.Thread(target=_bot_loop_backtest, args=(start_date, end_date, initial_equity), daemon=True)
-        STATE.bot_thread.start()
-        return jsonify({"success": True, "message": f"Backtest started: {start_date} to {end_date}", "mode": "backtest"})
+        _bot_thread = threading.Thread(target=_bot_loop_backtest, args=(start_date, end_date, initial_equity), daemon=True)
+        _bot_thread.start()
+        _write_pid_file(os.getpid(), "backtest")
+        return jsonify({"success": True, "message": f"Backtest started: {start_date} to {end_date}", "mode": "backtest", "pid": os.getpid()})
 
-    elif mode == "live":
-        STATE.running = False
+    elif _mode == "live":
         return jsonify({"success": False, "error": "Live mode not available through dashboard."}), 403
 
     else:  # paper
         if not BOT_AVAILABLE:
-            STATE.running = False
             return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
-        STATE.bot_thread = threading.Thread(target=_bot_loop_paper, daemon=True)
-        STATE.bot_thread.start()
+        _bot_thread = threading.Thread(target=_bot_loop_paper, daemon=True)
+        _bot_thread.start()
 
-        # Wait and verify thread actually started
-        time.sleep(3)
-        if not STATE.is_thread_alive():
-            STATE.force_reset()
-            error_msg = STATE.last_error or "Bot thread failed to start. Check Railway logs for details."
+        # Write PID file AFTER thread starts
+        time.sleep(0.5)
+        _write_pid_file(os.getpid(), "paper")
+
+        # Verify thread actually started
+        time.sleep(2)
+        if not _is_thread_alive():
+            _delete_pid_file()
+            error_msg = _last_error or "Bot thread failed to start. Check Railway logs."
             return jsonify({"success": False, "error": error_msg}), 500
 
-        return jsonify({"success": True, "message": "Paper trading started", "mode": "paper"})
+        return jsonify({"success": True, "message": "Paper trading started", "mode": "paper", "pid": os.getpid()})
 
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
-    """Stop the bot."""
-    STATE.running = False
-    if STATE.bot_thread and STATE.bot_thread.is_alive():
-        STATE.bot_thread.join(timeout=5)
-    STATE.force_reset()
+    """Stop the bot and clean up PID file."""
+    _delete_pid_file()
+    if _bot_thread and _bot_thread.is_alive():
+        _bot_thread.join(timeout=5)
     return jsonify({"success": True, "message": "Bot stopped"})
 
 
 @app.route("/api/force-restart", methods=["POST"])
 def force_restart():
-    """Force restart - kills any stuck thread and starts fresh."""
-    STATE.force_reset()
+    """Force kill PID file and reset. Use when bot is stuck."""
+    pid = _read_pid_file()
+    if pid and _is_pid_alive(pid):
+        try:
+            import signal
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(1)
+        except Exception:
+            pass
+    _delete_pid_file()
     return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
 
 
 @app.route("/api/status")
 def get_status():
-    """Get status - auto-detects dead threads."""
-    STATE.reset_if_dead()
+    """Get status — consistent across ALL devices and workers."""
 
     if _is_demo_mode():
-        mode = request.args.get("mode", STATE.mode)
+        mode = request.args.get("mode", _mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
         return jsonify({
             "running": False, "mode": mode, "cycle_count": 0,
@@ -573,57 +598,59 @@ def get_status():
             "thread_alive": False,
         })
 
-    if STATE.strategy:
-        STATE.update_from_strategy()
-    STATE.update_from_database()
+    # === SINGLE SOURCE OF TRUTH ===
+    is_running = _is_bot_running()
+    info = _get_bot_info()
 
-    state = STATE.get_safe_state()
+    # Update caches if we have a local strategy
+    if _strategy:
+        _update_from_strategy()
+    _update_from_database()
+
     return jsonify({
-        "running": state["running"] and state["thread_alive"],
-        "mode": state["mode"],
-        "cycle_count": state["cycle_count"],
-        "last_cycle_time": state["last_cycle_time"],
-        "last_error": state["last_error"],
-        "equity": state["stats"]["equity"],
-        "open_positions": state["stats"]["open_positions"],
-        "today_pnl": state["stats"]["today_pnl"],
-        "today_trades": state["stats"]["today_trades"],
-        "win_rate": state["stats"]["win_rate"],
-        "avg_r": state["stats"]["avg_r"],
-        "total_risk": state["stats"]["total_risk"],
+        "running": is_running,
+        "mode": info.get("mode", _mode),
+        "cycle_count": _cycle_count,
+        "last_cycle_time": _last_cycle_time,
+        "last_error": _last_error,
+        "equity": _stats_cache["equity"],
+        "open_positions": _stats_cache["open_positions"],
+        "today_pnl": _stats_cache["today_pnl"],
+        "today_trades": _stats_cache["today_trades"],
+        "win_rate": _stats_cache["win_rate"],
+        "avg_r": _stats_cache["avg_r"],
+        "total_risk": _stats_cache["total_risk"],
         "demo": False,
         "bot_available": BOT_AVAILABLE,
         "backtest_available": BACKTEST_AVAILABLE,
-        "thread_alive": state["thread_alive"],
+        "thread_alive": _is_thread_alive(),
+        "pid": info.get("pid"),
+        "started_at": info.get("started_at"),
     })
 
 
 @app.route("/api/positions")
 def get_positions():
-    STATE.reset_if_dead()
     if _is_demo_mode():
-        mode = request.args.get("mode", STATE.mode)
+        mode = request.args.get("mode", _mode)
         return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
-    if STATE.strategy:
-        STATE.update_from_strategy()
-    state = STATE.get_safe_state()
-    return jsonify({"positions": state["positions"], "count": len(state["positions"]), "mode": state["mode"], "demo": False})
+    if _strategy:
+        _update_from_strategy()
+    return jsonify({"positions": _positions_cache, "count": len(_positions_cache), "mode": _mode, "demo": False})
 
 
 @app.route("/api/trades")
 def get_trades():
     if _is_demo_mode():
-        mode = request.args.get("mode", STATE.mode)
+        mode = request.args.get("mode", _mode)
         return jsonify({"trades": DEMO_TRADES.get(mode, []), "total": len(DEMO_TRADES.get(mode, [])), "mode": mode, "demo": True})
-    STATE.update_from_database()
-    state = STATE.get_safe_state()
-    return jsonify({"trades": state["trades"], "total": len(state["trades"]), "mode": state["mode"], "demo": False})
+    _update_from_database()
+    return jsonify({"trades": _trades_cache, "total": len(_trades_cache), "mode": _mode, "demo": False})
 
 
 @app.route("/api/scan-log")
 def get_scan_log():
-    state = STATE.get_safe_state()
-    return jsonify({"scan_log": state["scan_log"], "universe_size": len(STATE.strategy.universe) if STATE.strategy else 0})
+    return jsonify({"scan_log": _scan_log, "universe_size": len(_strategy.universe) if _strategy else 0})
 
 
 @app.route("/api/trade/<trade_id>")
@@ -653,7 +680,7 @@ def get_trade_detail(trade_id):
 
 @app.route("/api/balance")
 def get_balance():
-    mode = request.args.get("mode", STATE.mode)
+    mode = request.args.get("mode", _mode)
     if _is_demo_mode():
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
         return jsonify({"mode": mode, "balance": stats["equity"], "source": "demo", "currency": "USDT", "demo": True})
@@ -666,22 +693,22 @@ def get_balance():
             return jsonify({"mode": "live", "balance": 0, "error": str(e), "source": "error", "demo": False})
     elif mode == "paper":
         equity = 10000.0
-        if STATE.strategy:
+        if _strategy:
             try:
-                equity = STATE.strategy._get_account_equity()
+                equity = _strategy._get_account_equity()
             except:
                 pass
         return jsonify({"mode": "paper", "balance": equity, "source": "paper_account", "currency": "USDT", "demo": False})
     else:
-        equity = STATE.backtest_result.final_equity if STATE.backtest_result else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
-        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_result" if STATE.backtest_result else "backtest_config", "currency": "USDT", "demo": False})
+        equity = _backtest_result.final_equity if _backtest_result else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
+        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_result" if _backtest_result else "backtest_config", "currency": "USDT", "demo": False})
 
 
 @app.route("/api/backtest/result")
 def get_backtest_result():
-    if not STATE.backtest_result:
+    if not _backtest_result:
         return jsonify({"error": "No backtest result available."}), 404
-    result = STATE.backtest_result
+    result = _backtest_result
     return jsonify({
         "start_date": result.start_date, "end_date": result.end_date,
         "initial_equity": result.initial_equity, "final_equity": result.final_equity,
@@ -693,9 +720,24 @@ def get_backtest_result():
     })
 
 
+@app.route("/api/performance-report")
+def performance_report():
+    try:
+        from core.performance_logger import get_performance_logger
+        import io
+        logger = get_performance_logger()
+        old_stdout = sys.stdout
+        sys.stdout = buffer = io.StringIO()
+        logger.report()
+        sys.stdout = old_stdout
+        return jsonify({"success": True, "report": buffer.getvalue()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Bulletproof Dashboard")
+    print("TRADE WITH DEZIFY - PID-Based State Dashboard")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
