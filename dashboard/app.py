@@ -1,15 +1,13 @@
 """
 Trade With Dezify - Flask Dashboard
-REAL INTEGRATION with TrendPullbackStrategy + BacktestEngine
-
-NO DEMO DATA unless explicitly requested via ?demo=1
+REAL INTEGRATION with TrendPullbackStrategy
 """
 
 import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -47,7 +45,7 @@ except Exception as e:
 
 
 # =============================================================================
-# DEMO DATA - EXPLICITLY GATED, NEVER SILENT
+# DEMO DATA
 # =============================================================================
 DEMO_POSITIONS = {
     "paper": [
@@ -195,11 +193,9 @@ def _is_demo_mode() -> bool:
 
 
 # =============================================================================
-# GLOBAL STATE - Shared between dashboard and bot thread
+# GLOBAL STATE
 # =============================================================================
 class BotState:
-    """Thread-safe state container for the trading bot."""
-
     def __init__(self):
         self.lock = threading.Lock()
         self.strategy = None
@@ -209,9 +205,8 @@ class BotState:
         self.cycle_count = 0
         self.last_cycle_time = None
         self.last_error = None
-        self.backtest_result = None  # type: Optional[Any]
+        self.backtest_result = None
 
-        # Position tracking with cooldown
         self.positions_cache = []
         self.trades_cache = []
         self.stats_cache = {
@@ -223,41 +218,42 @@ class BotState:
             "avg_r": 0.0,
             "total_risk": 0.0,
         }
+        self.scan_log = []
 
-        # NEW: Track recently exited symbols to prevent immediate re-entry
-        self.recently_exited: Dict[str, datetime] = {}
+    def is_thread_alive(self):
+        """Check if the bot thread is actually running."""
+        return self.bot_thread is not None and self.bot_thread.is_alive()
 
-        # NEW: Scan log to show user what's happening
-        self.scan_log: List[Dict[str, Any]] = []
+    def reset_if_dead(self):
+        """Reset state if thread died unexpectedly."""
+        if self.running and not self.is_thread_alive():
+            print("⚠️ Detected dead thread, resetting state")
+            self.running = False
+            self.strategy = None
+            self.bot_thread = None
+            self.last_error = "Bot thread died unexpectedly. Click Start Bot to restart."
 
     def update_from_strategy(self):
-        """Read current state from the strategy instance."""
         if not self.strategy:
             return
-
         with self.lock:
             self.positions_cache = []
             seen_symbols = set()
-
             for symbol, pos in self.strategy.open_positions.items():
-                # Deduplication: skip if we've already seen this symbol
                 if symbol in seen_symbols:
                     continue
                 seen_symbols.add(symbol)
-
                 signal = pos["signal"]
                 current_price = 0
                 try:
                     current_price = self.strategy.market_data.get_latest_price(symbol) or signal.entry_price
                 except:
                     current_price = signal.entry_price
-
                 pnl_pct = 0
                 if signal.direction == "long" and signal.entry_price > 0:
                     pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
                 elif signal.direction == "short" and signal.entry_price > 0:
                     pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
-
                 self.positions_cache.append({
                     "id": pos["trade_id"],
                     "symbol": symbol,
@@ -274,15 +270,12 @@ class BotState:
                     "entry_time": pos["entry_time"].isoformat() if pos.get("entry_time") else datetime.now(timezone.utc).isoformat(),
                     "r_multiple": round((current_price - signal.entry_price) / (signal.entry_price - signal.stop_loss), 2) if signal.direction == "long" and signal.entry_price != signal.stop_loss else 0,
                 })
-
             self.stats_cache["open_positions"] = len(self.positions_cache)
             self.stats_cache["total_risk"] = sum(p["risk_pct"] for p in self.positions_cache) * 100
 
     def update_from_database(self):
-        """Read trades and stats from database."""
         try:
             db = Database()
-
             with self.lock:
                 all_trades = db.get_all_trades(limit=100)
                 self.trades_cache = []
@@ -301,20 +294,16 @@ class BotState:
                         "regime": t.market_regime,
                         "exit_reason": t.checklist.exit_reason if t.checklist else "",
                     })
-
                 closed = [t for t in all_trades if t.is_closed()]
                 today = datetime.now(timezone.utc).date()
                 today_trades = [t for t in closed if t.exit_time and t.exit_time.date() == today]
-
                 total_pnl = sum(t.realized_pnl for t in today_trades)
                 winners = sum(1 for t in closed if t.is_winner())
                 total_closed = len(closed)
                 win_rate = (winners / total_closed * 100) if total_closed > 0 else 0
                 avg_r = sum(t.r_multiple for t in closed) / len(closed) if closed else 0
-
                 latest_perf = db.get_daily_performance(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
                 equity = latest_perf.ending_equity if latest_perf else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
-
                 self.stats_cache.update({
                     "equity": round(equity, 2),
                     "today_pnl": round(total_pnl, 2),
@@ -325,61 +314,7 @@ class BotState:
         except Exception as e:
             print(f"Database update error: {e}")
 
-    def update_from_backtest(self, result):
-        """Populate state from backtest result."""
-        with self.lock:
-            self.backtest_result = result
-
-            self.positions_cache = []
-            for t in result.trades:
-                if not t.is_closed():
-                    self.positions_cache.append({
-                        "id": t.trade_id,
-                        "symbol": t.symbol,
-                        "direction": t.direction,
-                        "entry_price": t.entry_price,
-                        "current_price": t.entry_price,
-                        "stop_loss": t.stop_loss,
-                        "take_profit": t.take_profit,
-                        "position_size": t.position_size,
-                        "position_value": t.position_value,
-                        "leverage": t.leverage,
-                        "risk_pct": t.risk_pct,
-                        "pnl_pct": 0.0,
-                        "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-                        "r_multiple": 0.0,
-                    })
-
-            self.trades_cache = []
-            for t in result.trades:
-                if t.is_closed():
-                    self.trades_cache.append({
-                        "trade_id": t.trade_id,
-                        "symbol": t.symbol,
-                        "direction": t.direction,
-                        "entry_price": t.entry_price,
-                        "exit_price": t.exit_price,
-                        "pnl": round(t.realized_pnl, 2),
-                        "pnl_pct": round(t.realized_pnl_pct * 100, 2),
-                        "r_multiple": round(t.r_multiple, 2),
-                        "entry_time": t.entry_time.isoformat() if t.entry_time else None,
-                        "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-                        "regime": t.market_regime,
-                        "exit_reason": t.exit_reason,
-                    })
-
-            self.stats_cache.update({
-                "equity": round(result.final_equity, 2),
-                "open_positions": len(self.positions_cache),
-                "today_pnl": 0.0,
-                "today_trades": 0,
-                "win_rate": round(result.win_rate, 1),
-                "avg_r": round(result.avg_r, 2),
-                "total_risk": sum(p["risk_pct"] for p in self.positions_cache) * 100,
-            })
-
     def get_safe_state(self):
-        """Return a copy of current state (thread-safe)."""
         with self.lock:
             return {
                 "running": self.running,
@@ -391,6 +326,7 @@ class BotState:
                 "trades": list(self.trades_cache),
                 "stats": dict(self.stats_cache),
                 "scan_log": list(self.scan_log),
+                "thread_alive": self.is_thread_alive(),
             }
 
 
@@ -398,92 +334,72 @@ STATE = BotState()
 
 
 # =============================================================================
-# BOT THREAD FUNCTIONS
+# BOT THREAD
 # =============================================================================
 def _bot_loop_paper():
-    """Paper trading loop - runs in background thread."""
     STATE.last_error = None
-
     try:
+        print("🚀 Bot thread starting...")
         STATE.strategy = TrendPullbackStrategy()
+        print("✅ Strategy created")
         STATE.strategy.refresh_universe()
-
-        # NEW: Load existing open positions from database on startup
-        try:
-            db = Database()
-            open_trades = db.get_open_trades()
-            for trade in open_trades:
-                # Reconstruct position from database
-                if trade.symbol not in STATE.strategy.open_positions:
-                    STATE.strategy.open_positions[trade.symbol] = {
-                        "trade_id": trade.trade_id,
-                        "signal": trade,  # Simplified - real reconstruction would need full Signal object
-                        "entry_time": trade.entry_time,
-                    }
-            if open_trades:
-                print(f"Loaded {len(open_trades)} open positions from database")
-        except Exception as e:
-            print(f"Could not load open positions: {e}")
+        print(f"✅ Universe refreshed: {len(STATE.strategy.universe)} symbols")
 
         while STATE.running:
             STATE.cycle_count += 1
             STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
+            print(f"🔄 Cycle {STATE.cycle_count} starting...")
 
             try:
                 result = STATE.strategy.run_cycle()
-                print(f"Cycle {STATE.cycle_count}: {result}")
-
-                # NEW: Build scan log from the strategy's activity
-                # This shows which symbols were checked and why they passed/failed
-                if hasattr(STATE.strategy, 'universe') and STATE.strategy.universe:
-                    scan_entry = {
-                        "cycle": STATE.cycle_count,
-                        "time": datetime.now(timezone.utc).isoformat(),
-                        "universe_size": len(STATE.strategy.universe),
-                        "open_positions": list(STATE.strategy.open_positions.keys()),
-                        "exits": result.get("exits", 0),
-                        "entries": result.get("entries", 0),
-                    }
-                    STATE.scan_log.append(scan_entry)
-                    # Keep only last 20 scan logs
-                    STATE.scan_log = STATE.scan_log[-20:]
-
+                print(f"✅ Cycle {STATE.cycle_count} complete: {result}")
             except Exception as e:
                 STATE.last_error = str(e)
-                print(f"Cycle error: {e}")
+                print(f"❌ Cycle error: {e}")
 
             STATE.update_from_strategy()
             STATE.update_from_database()
 
+            # Build scan log
+            if hasattr(STATE.strategy, 'universe') and STATE.strategy.universe:
+                scan_entry = {
+                    "cycle": STATE.cycle_count,
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "universe_size": len(STATE.strategy.universe),
+                    "open_positions": list(STATE.strategy.open_positions.keys()),
+                    "exits": result.get("exits", 0) if 'result' in dir() else 0,
+                    "entries": result.get("entries", 0) if 'result' in dir() else 0,
+                }
+                STATE.scan_log.append(scan_entry)
+                STATE.scan_log = STATE.scan_log[-20:]
+
+            print(f"⏳ Sleeping 60s...")
             time.sleep(60)
 
     except Exception as e:
-        STATE.last_error = str(e)
-        print(f"Bot thread crashed: {e}")
+        STATE.last_error = f"Bot thread crashed: {str(e)}"
+        print(f"💥 Bot thread crashed: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         STATE.running = False
         STATE.strategy = None
+        print("🛑 Bot thread ended")
 
 
-def _bot_loop_backtest(start_date: str, end_date: str, initial_equity: float):
-    """Backtest loop - runs in background thread."""
+def _bot_loop_backtest(start_date, end_date, initial_equity):
     STATE.last_error = None
-
     try:
         if not BACKTEST_AVAILABLE or BacktestEngine is None:
-            STATE.last_error = "Backtest engine not available. Check backtest/engine.py exists and has no import errors."
+            STATE.last_error = "Backtest engine not available."
             STATE.running = False
             return
-
         engine = BacktestEngine(start_date, end_date, initial_equity)
         result = engine.run()
-
         STATE.update_from_backtest(result)
         STATE.cycle_count = 1
         STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
-
         STATE.running = False
-
     except Exception as e:
         STATE.last_error = str(e)
         print(f"Backtest error: {e}")
@@ -528,103 +444,85 @@ def set_mode():
 @app.route("/api/start", methods=["POST"])
 def start_bot():
     """Start the bot in the current mode."""
-    if STATE.running:
-        return jsonify({"success": False, "error": "Bot already running"}), 400
+    # CRITICAL FIX: Check if thread is actually alive
+    STATE.reset_if_dead()
+
+    if STATE.running and STATE.is_thread_alive():
+        return jsonify({"success": False, "error": "Bot already running", "thread_alive": True}), 400
+
+    # Reset state for fresh start
+    STATE.running = True
+    STATE.cycle_count = 0
+    STATE.last_error = None
+    STATE.last_cycle_time = None
+    STATE.scan_log = []
+    STATE.strategy = None
+    STATE.bot_thread = None
 
     data = request.get_json() or {}
     mode = data.get("mode", STATE.mode)
     STATE.mode = mode
-    STATE.running = True
-    STATE.cycle_count = 0
-    STATE.last_error = None
-    STATE.scan_log = []  # Clear scan log on new start
 
     if mode == "backtest":
         if not BACKTEST_AVAILABLE:
             STATE.running = False
-            return jsonify({
-                "success": False,
-                "error": "Backtest engine not available. Create backtest/engine.py first.",
-            }), 503
-
+            return jsonify({"success": False, "error": "Backtest engine not available."}), 503
         start_date = data.get("start_date", "2024-01-01")
         end_date = data.get("end_date", "2024-12-31")
         initial_equity = float(data.get("initial_equity", 10000))
-
-        STATE.bot_thread = threading.Thread(
-            target=_bot_loop_backtest,
-            args=(start_date, end_date, initial_equity),
-            daemon=True
-        )
+        STATE.bot_thread = threading.Thread(target=_bot_loop_backtest, args=(start_date, end_date, initial_equity), daemon=True)
         STATE.bot_thread.start()
-
-        return jsonify({
-            "success": True,
-            "message": f"Backtest started: {start_date} to {end_date}",
-            "mode": "backtest",
-        })
+        return jsonify({"success": True, "message": f"Backtest started: {start_date} to {end_date}", "mode": "backtest"})
 
     elif mode == "live":
-        return jsonify({
-            "success": False,
-            "error": "Live mode not available through dashboard. Use command line with --mode live."
-        }), 403
+        STATE.running = False
+        return jsonify({"success": False, "error": "Live mode not available through dashboard."}), 403
 
     else:  # paper
         if not BOT_AVAILABLE:
             STATE.running = False
-            return jsonify({
-                "success": False,
-                "error": "Bot modules not available. Check that strategies/trend_pullback.py and dependencies exist."
-            }), 500
+            return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
-        STATE.bot_thread = threading.Thread(
-            target=_bot_loop_paper,
-            daemon=True
-        )
+        STATE.bot_thread = threading.Thread(target=_bot_loop_paper, daemon=True)
         STATE.bot_thread.start()
 
-        return jsonify({
-            "success": True,
-            "message": "Paper trading started",
-            "mode": "paper"
-        })
+        # Give the thread a moment to start and potentially fail
+        time.sleep(2)
+
+        if not STATE.is_thread_alive():
+            STATE.running = False
+            error_msg = STATE.last_error or "Bot thread failed to start. Check logs."
+            return jsonify({"success": False, "error": error_msg}), 500
+
+        return jsonify({"success": True, "message": "Paper trading started", "mode": "paper"})
 
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
-    """Stop the bot."""
     STATE.running = False
+    if STATE.bot_thread and STATE.bot_thread.is_alive():
+        STATE.bot_thread.join(timeout=5)
     STATE.strategy = None
+    STATE.bot_thread = None
     return jsonify({"success": True, "message": "Bot stopped"})
 
 
 @app.route("/api/status")
 def get_status():
-    """Get current bot status with real data (or demo if explicitly requested)."""
+    STATE.reset_if_dead()
+
     if _is_demo_mode():
         mode = request.args.get("mode", STATE.mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        return jsonify({
-            "running": False,
-            "mode": mode,
-            "cycle_count": 0,
-            "last_cycle_time": None,
-            "last_error": None,
-            **stats,
-            "demo": True,
-            "bot_available": BOT_AVAILABLE,
-            "backtest_available": BACKTEST_AVAILABLE,
-        })
+        return jsonify({"running": False, "mode": mode, "cycle_count": 0, "last_cycle_time": None, "last_error": None, **stats, "demo": True, "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE})
 
     if STATE.strategy:
         STATE.update_from_strategy()
     STATE.update_from_database()
 
     state = STATE.get_safe_state()
-
     return jsonify({
-        "running": state["running"],
+        "running": state["running"] and state["thread_alive"],
         "mode": state["mode"],
         "cycle_count": state["cycle_count"],
         "last_cycle_time": state["last_cycle_time"],
@@ -639,185 +537,78 @@ def get_status():
         "demo": False,
         "bot_available": BOT_AVAILABLE,
         "backtest_available": BACKTEST_AVAILABLE,
+        "thread_alive": state["thread_alive"],
     })
 
 
 @app.route("/api/positions")
 def get_positions():
-    """Get open positions from real strategy state (or demo if explicitly requested)."""
+    STATE.reset_if_dead()
     if _is_demo_mode():
         mode = request.args.get("mode", STATE.mode)
-        return jsonify({
-            "positions": DEMO_POSITIONS.get(mode, []),
-            "count": len(DEMO_POSITIONS.get(mode, [])),
-            "mode": mode,
-            "demo": True,
-        })
-
+        return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
     if STATE.strategy:
         STATE.update_from_strategy()
-
     state = STATE.get_safe_state()
-    return jsonify({
-        "positions": state["positions"],
-        "count": len(state["positions"]),
-        "mode": state["mode"],
-        "demo": False,
-    })
+    return jsonify({"positions": state["positions"], "count": len(state["positions"]), "mode": state["mode"], "demo": False})
 
 
 @app.route("/api/trades")
 def get_trades():
-    """Get trade history from database (or demo if explicitly requested)."""
     if _is_demo_mode():
         mode = request.args.get("mode", STATE.mode)
-        return jsonify({
-            "trades": DEMO_TRADES.get(mode, []),
-            "total": len(DEMO_TRADES.get(mode, [])),
-            "mode": mode,
-            "demo": True,
-        })
-
+        return jsonify({"trades": DEMO_TRADES.get(mode, []), "total": len(DEMO_TRADES.get(mode, [])), "mode": mode, "demo": True})
     STATE.update_from_database()
     state = STATE.get_safe_state()
-
-    return jsonify({
-        "trades": state["trades"],
-        "total": len(state["trades"]),
-        "mode": state["mode"],
-        "demo": False,
-    })
+    return jsonify({"trades": state["trades"], "total": len(state["trades"]), "mode": state["mode"], "demo": False})
 
 
 @app.route("/api/scan-log")
 def get_scan_log():
-    """NEW: Get the scan log to see which symbols were checked."""
     state = STATE.get_safe_state()
-    return jsonify({
-        "scan_log": state["scan_log"],
-        "universe_size": len(STATE.strategy.universe) if STATE.strategy else 0,
-    })
+    return jsonify({"scan_log": state["scan_log"], "universe_size": len(STATE.strategy.universe) if STATE.strategy else 0})
 
 
 @app.route("/api/trade/<trade_id>")
 def get_trade_detail(trade_id):
-    """Get full 8-layer explainability for a trade from database."""
     try:
         db = Database()
         trade = db.get_trade(trade_id)
-
         if not trade:
             return jsonify({"error": "Trade not found"}), 404
-
         checklist = trade.checklist.to_dict() if trade.checklist else {}
-
         return jsonify({
             "trade_id": trade.trade_id,
             "symbol": trade.symbol,
             "direction": trade.direction,
             "layers": {
-                "layer_1": {
-                    "name": "Market Regime",
-                    "passed": checklist.get("adx_above_threshold", False),
-                    "adx": checklist.get("adx_value", 0),
-                    "atr_sufficient": checklist.get("atr_sufficient", False),
-                    "volume_sufficient": checklist.get("volume_sufficient", False),
-                    "regime": trade.market_regime,
-                    "explanation": f"ADX was {checklist.get('adx_value', 0):.1f} (threshold: 25). Market regime: {trade.market_regime}."
-                },
-                "layer_2": {
-                    "name": "Trend Analysis",
-                    "passed": checklist.get("daily_ema_aligned", False) or checklist.get("fourh_ema_aligned", False),
-                    "daily_trend": "up" if checklist.get("daily_ema_aligned") else "neutral",
-                    "fourh_trend": "up" if checklist.get("fourh_ema_aligned") else "neutral",
-                    "score": checklist.get("trend_score", 0),
-                    "explanation": f"Daily aligned: {checklist.get('daily_ema_aligned', False)}. 4H aligned: {checklist.get('fourh_ema_aligned', False)}. Score: {checklist.get('trend_score', 0)}."
-                },
-                "layer_3": {
-                    "name": "Pullback Detection",
-                    "passed": checklist.get("pullback_confirmed", False),
-                    "depth": checklist.get("pullback_depth", 0),
-                    "explanation": f"Pullback depth: {checklist.get('pullback_depth', 0):.4f}. Confirmed: {checklist.get('pullback_confirmed', False)}."
-                },
-                "layer_4": {
-                    "name": "Entry Trigger",
-                    "passed": checklist.get("entry_triggered", False),
-                    "entry_price": checklist.get("entry_price"),
-                    "stop_loss": checklist.get("stop_loss_price"),
-                    "take_profit": checklist.get("take_profit_price"),
-                    "risk_reward": checklist.get("risk_reward_ratio", 0),
-                    "explanation": f"Entry triggered: {checklist.get('entry_triggered', False)}. Price: {checklist.get('entry_price')}"
-                },
-                "layer_5": {
-                    "name": "Risk Management",
-                    "passed": True,
-                    "risk_pct": checklist.get("risk_pct", 0),
-                    "leverage": checklist.get("leverage", 1),
-                    "position_size": checklist.get("position_size", 0),
-                    "explanation": f"Risk: {checklist.get('risk_pct', 0)*100:.2f}%. Size: {checklist.get('position_size', 0):.4f}"
-                },
-                "layer_6": {
-                    "name": "Execution",
-                    "passed": True,
-                    "slippage": checklist.get("slippage_pct", 0),
-                    "explanation": "Order executed."
-                },
-                "layer_7": {
-                    "name": "Trade Management",
-                    "passed": True,
-                    "break_even": checklist.get("break_even_enabled", False),
-                    "trailing_stop": checklist.get("trailing_stop_enabled", False),
-                    "explanation": f"Exit reason: {checklist.get('exit_reason', 'still_open')}"
-                },
-                "layer_8": {
-                    "name": "Performance Review",
-                    "passed": True,
-                    "realized_pnl": trade.realized_pnl,
-                    "r_multiple": trade.r_multiple,
-                    "explanation": f"PnL: ${trade.realized_pnl:.2f}. R: {trade.r_multiple:.2f}R"
-                }
+                "layer_1": {"name": "Market Regime", "passed": checklist.get("adx_above_threshold", False), "adx": checklist.get("adx_value", 0), "regime": trade.market_regime, "explanation": f"ADX: {checklist.get('adx_value', 0):.1f}. Regime: {trade.market_regime}."},
+                "layer_2": {"name": "Trend Analysis", "passed": checklist.get("daily_ema_aligned", False) or checklist.get("fourh_ema_aligned", False), "score": checklist.get("trend_score", 0), "explanation": f"Daily: {checklist.get('daily_ema_aligned', False)}. 4H: {checklist.get('fourh_ema_aligned', False)}."},
+                "layer_3": {"name": "Pullback Detection", "passed": checklist.get("pullback_confirmed", False), "depth": checklist.get("pullback_depth", 0), "explanation": f"Depth: {checklist.get('pullback_depth', 0):.4f}"},
+                "layer_4": {"name": "Entry Trigger", "passed": checklist.get("entry_triggered", False), "entry_price": checklist.get("entry_price"), "stop_loss": checklist.get("stop_loss_price"), "take_profit": checklist.get("take_profit_price"), "explanation": f"Triggered: {checklist.get('entry_triggered', False)}"},
+                "layer_5": {"name": "Risk Management", "passed": True, "risk_pct": checklist.get("risk_pct", 0), "leverage": checklist.get("leverage", 1), "position_size": checklist.get("position_size", 0), "explanation": f"Risk: {checklist.get('risk_pct', 0)*100:.2f}%"},
+                "layer_6": {"name": "Execution", "passed": True, "explanation": "Order executed."},
+                "layer_7": {"name": "Trade Management", "passed": True, "exit_reason": checklist.get("exit_reason", "still_open"), "explanation": f"Exit: {checklist.get('exit_reason', 'still_open')}"},
+                "layer_8": {"name": "Performance Review", "passed": True, "realized_pnl": trade.realized_pnl, "r_multiple": trade.r_multiple, "explanation": f"PnL: ${trade.realized_pnl:.2f}. R: {trade.r_multiple:.2f}R"},
             }
         })
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/balance")
 def get_balance():
-    """Get account balance based on mode."""
     mode = request.args.get("mode", STATE.mode)
-
     if _is_demo_mode():
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        return jsonify({
-            "mode": mode,
-            "balance": stats["equity"],
-            "source": "demo",
-            "currency": "USDT",
-            "demo": True,
-        })
-
+        return jsonify({"mode": mode, "balance": stats["equity"], "source": "demo", "currency": "USDT", "demo": True})
     if mode == "live":
         try:
             client = BitgetClient()
             balance = client.get_account_equity()
-            return jsonify({
-                "mode": "live",
-                "balance": balance,
-                "source": "bitget_api",
-                "currency": "USDT",
-                "demo": False,
-            })
+            return jsonify({"mode": "live", "balance": balance, "source": "bitget_api", "currency": "USDT", "demo": False})
         except Exception as e:
-            return jsonify({
-                "mode": "live",
-                "balance": 0,
-                "error": f"Could not fetch live balance: {str(e)}",
-                "source": "error",
-                "demo": False,
-            })
-
+            return jsonify({"mode": "live", "balance": 0, "error": str(e), "source": "error", "demo": False})
     elif mode == "paper":
         equity = 10000.0
         if STATE.strategy:
@@ -825,52 +616,25 @@ def get_balance():
                 equity = STATE.strategy._get_account_equity()
             except:
                 pass
-
-        return jsonify({
-            "mode": "paper",
-            "balance": equity,
-            "source": "paper_account",
-            "currency": "USDT",
-            "demo": False,
-        })
-
-    else:  # backtest
-        if STATE.backtest_result:
-            equity = STATE.backtest_result.final_equity
-        else:
-            equity = BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0
-
-        return jsonify({
-            "mode": "backtest",
-            "balance": equity,
-            "source": "backtest_result" if STATE.backtest_result else "backtest_config",
-            "currency": "USDT",
-            "demo": False,
-        })
+        return jsonify({"mode": "paper", "balance": equity, "source": "paper_account", "currency": "USDT", "demo": False})
+    else:
+        equity = STATE.backtest_result.final_equity if STATE.backtest_result else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
+        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_result" if STATE.backtest_result else "backtest_config", "currency": "USDT", "demo": False})
 
 
 @app.route("/api/backtest/result")
 def get_backtest_result():
-    """Get detailed backtest results."""
     if not STATE.backtest_result:
-        return jsonify({"error": "No backtest result available. Run a backtest first."}), 404
-
+        return jsonify({"error": "No backtest result available."}), 404
     result = STATE.backtest_result
     return jsonify({
-        "start_date": result.start_date,
-        "end_date": result.end_date,
-        "initial_equity": result.initial_equity,
-        "final_equity": result.final_equity,
-        "total_return_pct": result.total_return_pct,
-        "max_drawdown_pct": result.max_drawdown_pct,
-        "total_trades": result.total_trades,
-        "winning_trades": result.winning_trades,
-        "losing_trades": result.losing_trades,
-        "win_rate": result.win_rate,
-        "avg_r": result.avg_r,
-        "avg_winner_r": result.avg_winner_r,
-        "avg_loser_r": result.avg_loser_r,
-        "profit_factor": result.profit_factor,
+        "start_date": result.start_date, "end_date": result.end_date,
+        "initial_equity": result.initial_equity, "final_equity": result.final_equity,
+        "total_return_pct": result.total_return_pct, "max_drawdown_pct": result.max_drawdown_pct,
+        "total_trades": result.total_trades, "winning_trades": result.winning_trades,
+        "losing_trades": result.losing_trades, "win_rate": result.win_rate,
+        "avg_r": result.avg_r, "avg_winner_r": result.avg_winner_r,
+        "avg_loser_r": result.avg_loser_r, "profit_factor": result.profit_factor,
     })
 
 
