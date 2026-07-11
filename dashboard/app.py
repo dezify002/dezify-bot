@@ -224,33 +224,44 @@ class BotState:
 
     def is_thread_alive(self):
         """Check if the bot thread is actually running."""
-        with self.lock:
-            return self.bot_thread is not None and self.bot_thread.is_alive()
+        try:
+            with self.lock:
+                return self.bot_thread is not None and self.bot_thread.is_alive()
+        except Exception:
+            return False
 
     def reset_if_dead(self):
         """Reset state if thread died unexpectedly."""
-        with self.lock:
-            if self.running and (self.bot_thread is None or not self.bot_thread.is_alive()):
-                print("⚠️ DETECTED DEAD THREAD - Auto-resetting state")
-                self.running = False
-                self.strategy = None
-                self.bot_thread = None
-                if not self.last_error:
-                    self.last_error = "Bot thread died. Click Start Bot to restart."
-                return True
+        try:
+            with self.lock:
+                if self.running and (self.bot_thread is None or not self.bot_thread.is_alive()):
+                    print("⚠️ DETECTED DEAD THREAD - Auto-resetting state")
+                    self.running = False
+                    self.strategy = None
+                    self.bot_thread = None
+                    if not self.last_error:
+                        self.last_error = "Bot thread died. Click Start Bot to restart."
+                    return True
+        except Exception:
+            pass
         return False
 
     def force_reset(self):
         """Force reset all state - used when user clicks Force Restart."""
-        with self.lock:
+        try:
+            with self.lock:
+                self.running = False
+                self.strategy = None
+                self.bot_thread = None
+                self.cycle_count = 0
+                self.last_error = None
+                self.last_cycle_time = None
+                self.scan_log = []
+                print("🔄 State force-reset by user")
+        except Exception:
             self.running = False
             self.strategy = None
             self.bot_thread = None
-            self.cycle_count = 0
-            self.last_error = None
-            self.last_cycle_time = None
-            self.scan_log = []
-            print("🔄 State force-reset by user")
 
     def update_from_strategy(self):
         if not self.strategy:
@@ -334,18 +345,32 @@ class BotState:
             print(f"Database update error: {e}")
 
     def get_safe_state(self):
-        with self.lock:
+        try:
+            with self.lock:
+                return {
+                    "running": self.running,
+                    "mode": self.mode,
+                    "cycle_count": self.cycle_count,
+                    "last_cycle_time": self.last_cycle_time,
+                    "last_error": self.last_error,
+                    "positions": list(self.positions_cache),
+                    "trades": list(self.trades_cache),
+                    "stats": dict(self.stats_cache),
+                    "scan_log": list(self.scan_log),
+                    "thread_alive": self.bot_thread is not None and self.bot_thread.is_alive(),
+                }
+        except Exception:
             return {
-                "running": self.running,
+                "running": False,
                 "mode": self.mode,
-                "cycle_count": self.cycle_count,
-                "last_cycle_time": self.last_cycle_time,
-                "last_error": self.last_error,
-                "positions": list(self.positions_cache),
-                "trades": list(self.trades_cache),
-                "stats": dict(self.stats_cache),
-                "scan_log": list(self.scan_log),
-                "thread_alive": self.is_thread_alive(),
+                "cycle_count": 0,
+                "last_cycle_time": None,
+                "last_error": "State error",
+                "positions": [],
+                "trades": [],
+                "stats": {},
+                "scan_log": [],
+                "thread_alive": False,
             }
 
 
@@ -668,23 +693,6 @@ def get_backtest_result():
     })
 
 
-# === PERFORMANCE REPORT ROUTE ===
-# Add this anywhere in your dashboard/app.py before the `if __name__ == "__main__"` block
-
-@app.route("/api/performance-report")
-def performance_report():
-    """Get ADX vs time-to-resolution report."""
-    try:
-        from core.performance_logger import get_performance_logger
-        import io
-        logger = get_performance_logger()
-        old_stdout = sys.stdout
-        sys.stdout = buffer = io.StringIO()
-        logger.report()
-        sys.stdout = old_stdout
-        return jsonify({"success": True, "report": buffer.getvalue()})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
 if __name__ == "__main__":
     print("=" * 60)
     print("TRADE WITH DEZIFY - Bulletproof Dashboard")
