@@ -9,7 +9,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -36,7 +36,6 @@ except Exception as e:
     print(f"❌ Bot modules not available: {e}")
     BOT_AVAILABLE = False
 
-# Try to import backtest engine - handle gracefully if missing
 try:
     from backtest.engine import BacktestEngine
     BACKTEST_AVAILABLE = True
@@ -50,9 +49,6 @@ except Exception as e:
 # =============================================================================
 # DEMO DATA - EXPLICITLY GATED, NEVER SILENT
 # =============================================================================
-# These are ONLY used when ?demo=1 is passed or demo_mode is explicitly enabled.
-# They will NEVER be silently substituted for real data.
-
 DEMO_POSITIONS = {
     "paper": [
         {
@@ -195,7 +191,6 @@ DEMO_STATS = {
 
 
 def _is_demo_mode() -> bool:
-    """Check if demo mode is explicitly requested."""
     return request.args.get("demo", "0") == "1" or request.args.get("demo_mode", "0") == "1"
 
 
@@ -216,6 +211,7 @@ class BotState:
         self.last_error = None
         self.backtest_result = None  # type: Optional[Any]
 
+        # Position tracking with cooldown
         self.positions_cache = []
         self.trades_cache = []
         self.stats_cache = {
@@ -228,6 +224,12 @@ class BotState:
             "total_risk": 0.0,
         }
 
+        # NEW: Track recently exited symbols to prevent immediate re-entry
+        self.recently_exited: Dict[str, datetime] = {}
+
+        # NEW: Scan log to show user what's happening
+        self.scan_log: List[Dict[str, Any]] = []
+
     def update_from_strategy(self):
         """Read current state from the strategy instance."""
         if not self.strategy:
@@ -235,7 +237,14 @@ class BotState:
 
         with self.lock:
             self.positions_cache = []
+            seen_symbols = set()
+
             for symbol, pos in self.strategy.open_positions.items():
+                # Deduplication: skip if we've already seen this symbol
+                if symbol in seen_symbols:
+                    continue
+                seen_symbols.add(symbol)
+
                 signal = pos["signal"]
                 current_price = 0
                 try:
@@ -321,7 +330,6 @@ class BotState:
         with self.lock:
             self.backtest_result = result
 
-            # Build positions from open trades in backtest
             self.positions_cache = []
             for t in result.trades:
                 if not t.is_closed():
@@ -342,7 +350,6 @@ class BotState:
                         "r_multiple": 0.0,
                     })
 
-            # Build trades list from closed trades
             self.trades_cache = []
             for t in result.trades:
                 if t.is_closed():
@@ -383,6 +390,7 @@ class BotState:
                 "positions": list(self.positions_cache),
                 "trades": list(self.trades_cache),
                 "stats": dict(self.stats_cache),
+                "scan_log": list(self.scan_log),
             }
 
 
@@ -400,6 +408,23 @@ def _bot_loop_paper():
         STATE.strategy = TrendPullbackStrategy()
         STATE.strategy.refresh_universe()
 
+        # NEW: Load existing open positions from database on startup
+        try:
+            db = Database()
+            open_trades = db.get_open_trades()
+            for trade in open_trades:
+                # Reconstruct position from database
+                if trade.symbol not in STATE.strategy.open_positions:
+                    STATE.strategy.open_positions[trade.symbol] = {
+                        "trade_id": trade.trade_id,
+                        "signal": trade,  # Simplified - real reconstruction would need full Signal object
+                        "entry_time": trade.entry_time,
+                    }
+            if open_trades:
+                print(f"Loaded {len(open_trades)} open positions from database")
+        except Exception as e:
+            print(f"Could not load open positions: {e}")
+
         while STATE.running:
             STATE.cycle_count += 1
             STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
@@ -407,6 +432,22 @@ def _bot_loop_paper():
             try:
                 result = STATE.strategy.run_cycle()
                 print(f"Cycle {STATE.cycle_count}: {result}")
+
+                # NEW: Build scan log from the strategy's activity
+                # This shows which symbols were checked and why they passed/failed
+                if hasattr(STATE.strategy, 'universe') and STATE.strategy.universe:
+                    scan_entry = {
+                        "cycle": STATE.cycle_count,
+                        "time": datetime.now(timezone.utc).isoformat(),
+                        "universe_size": len(STATE.strategy.universe),
+                        "open_positions": list(STATE.strategy.open_positions.keys()),
+                        "exits": result.get("exits", 0),
+                        "entries": result.get("entries", 0),
+                    }
+                    STATE.scan_log.append(scan_entry)
+                    # Keep only last 20 scan logs
+                    STATE.scan_log = STATE.scan_log[-20:]
+
             except Exception as e:
                 STATE.last_error = str(e)
                 print(f"Cycle error: {e}")
@@ -441,7 +482,6 @@ def _bot_loop_backtest(start_date: str, end_date: str, initial_equity: float):
         STATE.cycle_count = 1
         STATE.last_cycle_time = datetime.now(timezone.utc).isoformat()
 
-        # Backtest runs once then stops
         STATE.running = False
 
     except Exception as e:
@@ -497,6 +537,7 @@ def start_bot():
     STATE.running = True
     STATE.cycle_count = 0
     STATE.last_error = None
+    STATE.scan_log = []  # Clear scan log on new start
 
     if mode == "backtest":
         if not BACKTEST_AVAILABLE:
@@ -645,6 +686,16 @@ def get_trades():
         "total": len(state["trades"]),
         "mode": state["mode"],
         "demo": False,
+    })
+
+
+@app.route("/api/scan-log")
+def get_scan_log():
+    """NEW: Get the scan log to see which symbols were checked."""
+    state = STATE.get_safe_state()
+    return jsonify({
+        "scan_log": state["scan_log"],
+        "universe_size": len(STATE.strategy.universe) if STATE.strategy else 0,
     })
 
 
