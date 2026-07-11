@@ -668,6 +668,23 @@ def get_backtest_result():
     })
 
 
+# === PERFORMANCE REPORT ROUTE ===
+# Add this anywhere in your dashboard/app.py before the `if __name__ == "__main__"` block
+
+@app.route("/api/performance-report")
+def performance_report():
+    """Get ADX vs time-to-resolution report."""
+    try:
+        from core.performance_logger import get_performance_logger
+        import io
+        logger = get_performance_logger()
+        old_stdout = sys.stdout
+        sys.stdout = buffer = io.StringIO()
+        logger.report()
+        sys.stdout = old_stdout
+        return jsonify({"success": True, "report": buffer.getvalue()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 if __name__ == "__main__":
     print("=" * 60)
     print("TRADE WITH DEZIFY - Bulletproof Dashboard")
