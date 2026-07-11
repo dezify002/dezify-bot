@@ -1,15 +1,15 @@
 """
 Trade With Dezify - Flask Dashboard
-PID-BASED STATE - Single source of truth across all devices/workers
+SEPARATE PROCESS VERSION - Bot runs outside Gunicorn workers
 """
 
 import os
 import sys
-import threading
+import subprocess
+import signal
+import json
 import time
 import traceback
-import json
-import psutil
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -24,11 +24,10 @@ app.secret_key = "dezify_secret_key_2026"
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
 
 # =============================================================================
-# REAL BOT IMPORTS
+# REAL BOT IMPORTS (for status queries only)
 # =============================================================================
 try:
     from config.settings import BITGET, RISK, BACKTEST
-    from strategies.trend_pullback import TrendPullbackStrategy
     from data.database import Database
     from core.bitget_client import BitgetClient
     BOT_AVAILABLE = True
@@ -50,14 +49,12 @@ except Exception as e:
 # =============================================================================
 # SINGLE SOURCE OF TRUTH: PID FILE
 # =============================================================================
-# All workers read/write this file. No in-memory state for "running" status.
-
 PID_FILE = Path("data/bot.pid")
-STATE_FILE = Path("data/bot_state.json")
+BOT_LOG_FILE = Path("data/bot.log")
 
 
 def _read_pid_file() -> Optional[int]:
-    """Read PID from file. Returns None if no file or invalid."""
+    """Read PID from file."""
     try:
         if PID_FILE.exists():
             with open(PID_FILE, "r") as f:
@@ -92,34 +89,29 @@ def _delete_pid_file():
 
 
 def _is_pid_alive(pid: Optional[int]) -> bool:
-    """Check if a process with this PID actually exists and is running."""
+    """Check if a process with this PID actually exists."""
     if pid is None:
         return False
     try:
-        process = psutil.Process(pid)
-        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
-    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
         return False
 
 
 def _is_bot_running() -> bool:
-    """
-    SINGLE SOURCE OF TRUTH.
-    Check PID file -> verify process is alive.
-    This works across ALL devices and ALL workers.
-    """
+    """Single source of truth - works across ALL devices and workers."""
     pid = _read_pid_file()
     if pid is None:
         return False
     if _is_pid_alive(pid):
         return True
-    # PID file exists but process is dead — stale file
     _delete_pid_file()
     return False
 
 
 def _get_bot_info() -> Dict:
-    """Get bot info from PID file if running."""
+    """Get bot info from PID file."""
     try:
         if PID_FILE.exists():
             with open(PID_FILE) as f:
@@ -127,6 +119,18 @@ def _get_bot_info() -> Dict:
     except Exception:
         pass
     return {}
+
+
+def _read_bot_log(last_n: int = 50) -> List[str]:
+    """Read last N lines from bot log file."""
+    try:
+        if BOT_LOG_FILE.exists():
+            with open(BOT_LOG_FILE, "r") as f:
+                lines = f.readlines()
+                return lines[-last_n:]
+    except Exception:
+        pass
+    return []
 
 
 # =============================================================================
@@ -278,15 +282,8 @@ def _is_demo_mode() -> bool:
 
 
 # =============================================================================
-# IN-MEMORY STATE (per-worker, for strategy cache only — NOT for "running" status)
+# CACHES (per-worker, refreshed from DB)
 # =============================================================================
-_strategy = None
-_bot_thread = None
-_mode = "paper"
-_cycle_count = 0
-_last_cycle_time = None
-_last_error = None
-_backtest_result = None
 _positions_cache = []
 _trades_cache = []
 _stats_cache = {
@@ -299,57 +296,7 @@ _stats_cache = {
     "total_risk": 0.0,
 }
 _scan_log = []
-
-
-def _is_thread_alive() -> bool:
-    """Check if local bot thread is alive."""
-    if _bot_thread is None:
-        return False
-    try:
-        return _bot_thread.is_alive()
-    except Exception:
-        return False
-
-
-def _update_from_strategy():
-    global _strategy, _positions_cache, _stats_cache
-    if not _strategy:
-        return
-    _positions_cache = []
-    seen_symbols = set()
-    for symbol, pos in _strategy.open_positions.items():
-        if symbol in seen_symbols:
-            continue
-        seen_symbols.add(symbol)
-        signal = pos["signal"]
-        current_price = 0
-        try:
-            current_price = _strategy.market_data.get_latest_price(symbol) or signal.entry_price
-        except:
-            current_price = signal.entry_price
-        pnl_pct = 0
-        if signal.direction == "long" and signal.entry_price > 0:
-            pnl_pct = (current_price - signal.entry_price) / signal.entry_price * 100
-        elif signal.direction == "short" and signal.entry_price > 0:
-            pnl_pct = (signal.entry_price - current_price) / signal.entry_price * 100
-        _positions_cache.append({
-            "id": pos["trade_id"],
-            "symbol": symbol,
-            "direction": signal.direction,
-            "entry_price": signal.entry_price,
-            "current_price": current_price,
-            "stop_loss": signal.stop_loss,
-            "take_profit": signal.take_profit,
-            "position_size": signal.position_size,
-            "position_value": signal.position_value,
-            "leverage": signal.leverage,
-            "risk_pct": signal.risk_pct,
-            "pnl_pct": round(pnl_pct, 2),
-            "entry_time": pos["entry_time"].isoformat() if pos.get("entry_time") else datetime.now(timezone.utc).isoformat(),
-            "r_multiple": round((current_price - signal.entry_price) / (signal.entry_price - signal.stop_loss), 2) if signal.direction == "long" and signal.entry_price != signal.stop_loss else 0,
-        })
-    _stats_cache["open_positions"] = len(_positions_cache)
-    _stats_cache["total_risk"] = sum(p["risk_pct"] for p in _positions_cache) * 100
+_mode = "paper"
 
 
 def _update_from_database():
@@ -395,80 +342,6 @@ def _update_from_database():
 
 
 # =============================================================================
-# BOT THREAD
-# =============================================================================
-def _bot_loop_paper():
-    global _strategy, _cycle_count, _last_cycle_time, _last_error, _scan_log
-    _last_error = None
-    try:
-        print("🚀 Bot thread starting...")
-        _strategy = TrendPullbackStrategy()
-        print("✅ Strategy created")
-        _strategy.refresh_universe()
-        print(f"✅ Universe refreshed: {len(_strategy.universe)} symbols")
-
-        while _is_bot_running():
-            _cycle_count += 1
-            _last_cycle_time = datetime.now(timezone.utc).isoformat()
-            print(f"🔄 Cycle {_cycle_count} starting...")
-
-            try:
-                result = _strategy.run_cycle()
-                print(f"✅ Cycle {_cycle_count} complete: {result}")
-            except Exception as e:
-                _last_error = f"Cycle error: {str(e)}"
-                print(f"❌ Cycle error: {e}")
-                traceback.print_exc()
-
-            _update_from_strategy()
-            _update_from_database()
-
-            if hasattr(_strategy, 'universe') and _strategy.universe:
-                scan_entry = {
-                    "cycle": _cycle_count,
-                    "time": datetime.now(timezone.utc).isoformat(),
-                    "universe_size": len(_strategy.universe),
-                    "open_positions": list(_strategy.open_positions.keys()),
-                    "exits": result.get("exits", 0) if 'result' in dir() else 0,
-                    "entries": result.get("entries", 0) if 'result' in dir() else 0,
-                }
-                _scan_log.append(scan_entry)
-                _scan_log = _scan_log[-20:]
-
-            print(f"⏳ Sleeping 60s...")
-            time.sleep(60)
-
-    except Exception as e:
-        _last_error = f"Bot thread crashed: {str(e)}"
-        print(f"💥 Bot thread crashed: {e}")
-        traceback.print_exc()
-    finally:
-        _delete_pid_file()
-        _strategy = None
-        print("🛑 Bot thread ended, PID file removed")
-
-
-def _bot_loop_backtest(start_date, end_date, initial_equity):
-    global _cycle_count, _last_cycle_time, _last_error, _backtest_result
-    _last_error = None
-    try:
-        if not BACKTEST_AVAILABLE or BacktestEngine is None:
-            _last_error = "Backtest engine not available."
-            _delete_pid_file()
-            return
-        engine = BacktestEngine(start_date, end_date, initial_equity)
-        result = engine.run()
-        _backtest_result = result
-        _cycle_count = 1
-        _last_cycle_time = datetime.now(timezone.utc).isoformat()
-    except Exception as e:
-        _last_error = str(e)
-        print(f"Backtest error: {e}")
-    finally:
-        _delete_pid_file()
-
-
-# =============================================================================
 # FLASK ROUTES
 # =============================================================================
 
@@ -504,9 +377,9 @@ def set_mode():
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
-    global _mode, _bot_thread
+    global _mode
 
-    # === SINGLE SOURCE OF TRUTH: Check PID file + process alive ===
+    # === SINGLE SOURCE OF TRUTH ===
     if _is_bot_running():
         info = _get_bot_info()
         return jsonify({
@@ -516,24 +389,13 @@ def start_bot():
             "already_running": True,
             "pid": info.get("pid"),
             "started_at": info.get("started_at"),
-        }), 409  # 409 Conflict = resource already exists
-
-    # Clean up any stale PID file
-    _delete_pid_file()
+        }), 409
 
     data = request.get_json() or {}
     _mode = data.get("mode", _mode)
 
     if _mode == "backtest":
-        if not BACKTEST_AVAILABLE:
-            return jsonify({"success": False, "error": "Backtest engine not available."}), 503
-        start_date = data.get("start_date", "2024-01-01")
-        end_date = data.get("end_date", "2024-12-31")
-        initial_equity = float(data.get("initial_equity", 10000))
-        _bot_thread = threading.Thread(target=_bot_loop_backtest, args=(start_date, end_date, initial_equity), daemon=True)
-        _bot_thread.start()
-        _write_pid_file(os.getpid(), "backtest")
-        return jsonify({"success": True, "message": f"Backtest started: {start_date} to {end_date}", "mode": "backtest", "pid": os.getpid()})
+        return jsonify({"success": False, "error": "Backtest mode not yet implemented in separate process."}), 503
 
     elif _mode == "live":
         return jsonify({"success": False, "error": "Live mode not available through dashboard."}), 403
@@ -542,50 +404,150 @@ def start_bot():
         if not BOT_AVAILABLE:
             return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
-        _bot_thread = threading.Thread(target=_bot_loop_paper, daemon=True)
-        _bot_thread.start()
+        # === START BOT AS SEPARATE PROCESS ===
+        # This is the key fix: bot runs in its OWN process, not inside Gunicorn
+        try:
+            # Create a temporary script to run the bot
+            bot_script = Path("data/run_bot.py")
+            bot_script.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write PID file AFTER thread starts
-        time.sleep(0.5)
-        _write_pid_file(os.getpid(), "paper")
+            script_content = """
+import sys
+import os
+import time
+import traceback
+from pathlib import Path
+from datetime import datetime, timezone
 
-        # Verify thread actually started
-        time.sleep(2)
-        if not _is_thread_alive():
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from strategies.trend_pullback import TrendPullbackStrategy
+
+# Redirect output to log file
+log_file = Path("data/bot.log")
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+class Logger:
+    def __init__(self, filepath):
+        self.file = open(filepath, "a")
+        self.stdout = sys.stdout
+        sys.stdout = self
+        sys.stderr = self
+
+    def write(self, message):
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        if message.strip():
+            self.file.write(f"[{timestamp}] {message}")
+            self.file.flush()
+        self.stdout.write(message)
+
+    def flush(self):
+        self.file.flush()
+        self.stdout.flush()
+
+logger = Logger(log_file)
+
+print("=" * 50)
+print("BOT PROCESS STARTED")
+print("=" * 50)
+
+try:
+    strategy = TrendPullbackStrategy()
+    print("Strategy created")
+
+    strategy.refresh_universe()
+    print(f"Universe: {len(strategy.universe)} symbols")
+
+    cycle = 0
+    while True:
+        cycle += 1
+        print(f"Cycle {cycle}...")
+        result = strategy.run_cycle()
+        print(f"Cycle {cycle} complete: {result}")
+        time.sleep(60)
+
+except Exception as e:
+    print(f"BOT CRASHED: {e}")
+    traceback.print_exc()
+    raise
+"""
+
+            with open(bot_script, "w") as f:
+                f.write(script_content)
+
+            # Start the bot process
+            process = subprocess.Popen(
+                [sys.executable, str(bot_script)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(Path(__file__).parent.parent),
+            )
+
+            # Write PID file
+            _write_pid_file(process.pid, "paper")
+
+            # Wait a moment and verify
+            time.sleep(2)
+            if not _is_pid_alive(process.pid):
+                _delete_pid_file()
+                logs = _read_bot_log(20)
+                log_text = "\n".join(logs) if logs else "No log output"
+                return jsonify({
+                    "success": False,
+                    "error": "Bot process failed to start",
+                    "logs": log_text,
+                }), 500
+
+            return jsonify({
+                "success": True,
+                "message": "Paper trading started",
+                "mode": "paper",
+                "pid": process.pid,
+            })
+
+        except Exception as e:
             _delete_pid_file()
-            error_msg = _last_error or "Bot thread failed to start. Check Railway logs."
-            return jsonify({"success": False, "error": error_msg}), 500
-
-        return jsonify({"success": True, "message": "Paper trading started", "mode": "paper", "pid": os.getpid()})
+            return jsonify({"success": False, "error": f"Failed to start bot: {str(e)}"}), 500
 
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
-    """Stop the bot and clean up PID file."""
+    """Stop the bot process."""
+    pid = _read_pid_file()
+    if pid and _is_pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(1)
+            if _is_pid_alive(pid):
+                os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
     _delete_pid_file()
-    if _bot_thread and _bot_thread.is_alive():
-        _bot_thread.join(timeout=5)
     return jsonify({"success": True, "message": "Bot stopped"})
 
 
 @app.route("/api/force-restart", methods=["POST"])
 def force_restart():
-    """Force kill PID file and reset. Use when bot is stuck."""
+    """Force kill bot and reset."""
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         try:
-            import signal
-            os.kill(pid, signal.SIGTERM)
+            os.kill(pid, signal.SIGKILL)
             time.sleep(1)
         except Exception:
             pass
     _delete_pid_file()
+    if BOT_LOG_FILE.exists():
+        try:
+            BOT_LOG_FILE.unlink()
+        except Exception:
+            pass
     return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
 
 
 @app.route("/api/status")
 def get_status():
-    """Get status — consistent across ALL devices and workers."""
+    """Get status - consistent across ALL devices."""
 
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
@@ -595,24 +557,24 @@ def get_status():
             "last_cycle_time": None, "last_error": None,
             **stats, "demo": True,
             "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE,
-            "thread_alive": False,
         })
 
-    # === SINGLE SOURCE OF TRUTH ===
     is_running = _is_bot_running()
     info = _get_bot_info()
 
-    # Update caches if we have a local strategy
-    if _strategy:
-        _update_from_strategy()
     _update_from_database()
+
+    # Get recent log lines if running
+    recent_logs = []
+    if is_running:
+        recent_logs = _read_bot_log(10)
 
     return jsonify({
         "running": is_running,
         "mode": info.get("mode", _mode),
-        "cycle_count": _cycle_count,
-        "last_cycle_time": _last_cycle_time,
-        "last_error": _last_error,
+        "cycle_count": 0,  # Would need IPC to get from bot process
+        "last_cycle_time": None,
+        "last_error": None,
         "equity": _stats_cache["equity"],
         "open_positions": _stats_cache["open_positions"],
         "today_pnl": _stats_cache["today_pnl"],
@@ -623,9 +585,9 @@ def get_status():
         "demo": False,
         "bot_available": BOT_AVAILABLE,
         "backtest_available": BACKTEST_AVAILABLE,
-        "thread_alive": _is_thread_alive(),
         "pid": info.get("pid"),
         "started_at": info.get("started_at"),
+        "recent_logs": recent_logs,
     })
 
 
@@ -634,9 +596,32 @@ def get_positions():
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
         return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
-    if _strategy:
-        _update_from_strategy()
-    return jsonify({"positions": _positions_cache, "count": len(_positions_cache), "mode": _mode, "demo": False})
+    _update_from_database()
+    # Get open trades from DB
+    try:
+        db = Database()
+        open_trades = db.get_open_trades()
+        positions = []
+        for t in open_trades:
+            positions.append({
+                "id": t.trade_id,
+                "symbol": t.symbol,
+                "direction": t.direction,
+                "entry_price": t.entry_price,
+                "current_price": t.entry_price,  # Would need live price
+                "stop_loss": t.stop_loss_price,
+                "take_profit": t.take_profit_price,
+                "position_size": t.position_size,
+                "position_value": t.position_value_usd,
+                "leverage": t.leverage,
+                "risk_pct": t.risk_pct,
+                "pnl_pct": 0,
+                "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                "r_multiple": 0,
+            })
+        return jsonify({"positions": positions, "count": len(positions), "mode": _mode, "demo": False})
+    except Exception as e:
+        return jsonify({"positions": [], "count": 0, "mode": _mode, "demo": False, "error": str(e)})
 
 
 @app.route("/api/trades")
@@ -646,11 +631,6 @@ def get_trades():
         return jsonify({"trades": DEMO_TRADES.get(mode, []), "total": len(DEMO_TRADES.get(mode, [])), "mode": mode, "demo": True})
     _update_from_database()
     return jsonify({"trades": _trades_cache, "total": len(_trades_cache), "mode": _mode, "demo": False})
-
-
-@app.route("/api/scan-log")
-def get_scan_log():
-    return jsonify({"scan_log": _scan_log, "universe_size": len(_strategy.universe) if _strategy else 0})
 
 
 @app.route("/api/trade/<trade_id>")
@@ -692,32 +672,18 @@ def get_balance():
         except Exception as e:
             return jsonify({"mode": "live", "balance": 0, "error": str(e), "source": "error", "demo": False})
     elif mode == "paper":
-        equity = 10000.0
-        if _strategy:
-            try:
-                equity = _strategy._get_account_equity()
-            except:
-                pass
-        return jsonify({"mode": "paper", "balance": equity, "source": "paper_account", "currency": "USDT", "demo": False})
+        _update_from_database()
+        return jsonify({"mode": "paper", "balance": _stats_cache["equity"], "source": "paper_account", "currency": "USDT", "demo": False})
     else:
-        equity = _backtest_result.final_equity if _backtest_result else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
-        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_result" if _backtest_result else "backtest_config", "currency": "USDT", "demo": False})
+        equity = BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0
+        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_config", "currency": "USDT", "demo": False})
 
 
-@app.route("/api/backtest/result")
-def get_backtest_result():
-    if not _backtest_result:
-        return jsonify({"error": "No backtest result available."}), 404
-    result = _backtest_result
-    return jsonify({
-        "start_date": result.start_date, "end_date": result.end_date,
-        "initial_equity": result.initial_equity, "final_equity": result.final_equity,
-        "total_return_pct": result.total_return_pct, "max_drawdown_pct": result.max_drawdown_pct,
-        "total_trades": result.total_trades, "winning_trades": result.winning_trades,
-        "losing_trades": result.losing_trades, "win_rate": result.win_rate,
-        "avg_r": result.avg_r, "avg_winner_r": result.avg_winner_r,
-        "avg_loser_r": result.avg_loser_r, "profit_factor": result.profit_factor,
-    })
+@app.route("/api/bot-logs")
+def get_bot_logs():
+    """Get recent bot log lines."""
+    lines = _read_bot_log(100)
+    return jsonify({"logs": lines, "running": _is_bot_running()})
 
 
 @app.route("/api/performance-report")
@@ -737,7 +703,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - PID-Based State Dashboard")
+    print("TRADE WITH DEZIFY - Separate Process Dashboard")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
