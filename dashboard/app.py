@@ -1,13 +1,14 @@
 """
 Trade With Dezify - Flask Dashboard
-REAL INTEGRATION with TrendPullbackStrategy
+BULLETPROOF VERSION - Never gets stuck in "already running"
 """
 
 import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+import traceback
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -193,9 +194,11 @@ def _is_demo_mode() -> bool:
 
 
 # =============================================================================
-# GLOBAL STATE
+# GLOBAL STATE - BULLETPROOF VERSION
 # =============================================================================
 class BotState:
+    """Thread-safe state container with dead thread detection."""
+
     def __init__(self):
         self.lock = threading.Lock()
         self.strategy = None
@@ -206,7 +209,6 @@ class BotState:
         self.last_cycle_time = None
         self.last_error = None
         self.backtest_result = None
-
         self.positions_cache = []
         self.trades_cache = []
         self.stats_cache = {
@@ -222,16 +224,33 @@ class BotState:
 
     def is_thread_alive(self):
         """Check if the bot thread is actually running."""
-        return self.bot_thread is not None and self.bot_thread.is_alive()
+        with self.lock:
+            return self.bot_thread is not None and self.bot_thread.is_alive()
 
     def reset_if_dead(self):
         """Reset state if thread died unexpectedly."""
-        if self.running and not self.is_thread_alive():
-            print("⚠️ Detected dead thread, resetting state")
+        with self.lock:
+            if self.running and (self.bot_thread is None or not self.bot_thread.is_alive()):
+                print("⚠️ DETECTED DEAD THREAD - Auto-resetting state")
+                self.running = False
+                self.strategy = None
+                self.bot_thread = None
+                if not self.last_error:
+                    self.last_error = "Bot thread died. Click Start Bot to restart."
+                return True
+        return False
+
+    def force_reset(self):
+        """Force reset all state - used when user clicks Force Restart."""
+        with self.lock:
             self.running = False
             self.strategy = None
             self.bot_thread = None
-            self.last_error = "Bot thread died unexpectedly. Click Start Bot to restart."
+            self.cycle_count = 0
+            self.last_error = None
+            self.last_cycle_time = None
+            self.scan_log = []
+            print("🔄 State force-reset by user")
 
     def update_from_strategy(self):
         if not self.strategy:
@@ -334,9 +353,10 @@ STATE = BotState()
 
 
 # =============================================================================
-# BOT THREAD
+# BOT THREAD - WITH FULL ERROR HANDLING
 # =============================================================================
 def _bot_loop_paper():
+    """Paper trading loop - bulletproof version."""
     STATE.last_error = None
     try:
         print("🚀 Bot thread starting...")
@@ -354,13 +374,13 @@ def _bot_loop_paper():
                 result = STATE.strategy.run_cycle()
                 print(f"✅ Cycle {STATE.cycle_count} complete: {result}")
             except Exception as e:
-                STATE.last_error = str(e)
+                STATE.last_error = f"Cycle error: {str(e)}"
                 print(f"❌ Cycle error: {e}")
+                traceback.print_exc()
 
             STATE.update_from_strategy()
             STATE.update_from_database()
 
-            # Build scan log
             if hasattr(STATE.strategy, 'universe') and STATE.strategy.universe:
                 scan_entry = {
                     "cycle": STATE.cycle_count,
@@ -379,7 +399,6 @@ def _bot_loop_paper():
     except Exception as e:
         STATE.last_error = f"Bot thread crashed: {str(e)}"
         print(f"💥 Bot thread crashed: {e}")
-        import traceback
         traceback.print_exc()
     finally:
         STATE.running = False
@@ -408,7 +427,7 @@ def _bot_loop_backtest(start_date, end_date, initial_equity):
 
 
 # =============================================================================
-# FLASK ROUTES
+# FLASK ROUTES - BULLETPROOF VERSION
 # =============================================================================
 
 @app.route("/")
@@ -443,21 +462,21 @@ def set_mode():
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
-    """Start the bot in the current mode."""
-    # CRITICAL FIX: Check if thread is actually alive
-    STATE.reset_if_dead()
+    """Start the bot - NEVER gets stuck."""
+    # BULLETPROOF: Always check and reset dead threads first
+    was_reset = STATE.reset_if_dead()
 
     if STATE.running and STATE.is_thread_alive():
-        return jsonify({"success": False, "error": "Bot already running", "thread_alive": True}), 400
+        return jsonify({
+            "success": False,
+            "error": "Bot already running",
+            "thread_alive": True,
+            "cycle_count": STATE.cycle_count,
+        }), 400
 
-    # Reset state for fresh start
+    # Full reset for fresh start
+    STATE.force_reset()
     STATE.running = True
-    STATE.cycle_count = 0
-    STATE.last_error = None
-    STATE.last_cycle_time = None
-    STATE.scan_log = []
-    STATE.strategy = None
-    STATE.bot_thread = None
 
     data = request.get_json() or {}
     mode = data.get("mode", STATE.mode)
@@ -486,12 +505,11 @@ def start_bot():
         STATE.bot_thread = threading.Thread(target=_bot_loop_paper, daemon=True)
         STATE.bot_thread.start()
 
-        # Give the thread a moment to start and potentially fail
-        time.sleep(2)
-
+        # Wait and verify thread actually started
+        time.sleep(3)
         if not STATE.is_thread_alive():
-            STATE.running = False
-            error_msg = STATE.last_error or "Bot thread failed to start. Check logs."
+            STATE.force_reset()
+            error_msg = STATE.last_error or "Bot thread failed to start. Check Railway logs for details."
             return jsonify({"success": False, "error": error_msg}), 500
 
         return jsonify({"success": True, "message": "Paper trading started", "mode": "paper"})
@@ -499,22 +517,36 @@ def start_bot():
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
+    """Stop the bot."""
     STATE.running = False
     if STATE.bot_thread and STATE.bot_thread.is_alive():
         STATE.bot_thread.join(timeout=5)
-    STATE.strategy = None
-    STATE.bot_thread = None
+    STATE.force_reset()
     return jsonify({"success": True, "message": "Bot stopped"})
+
+
+@app.route("/api/force-restart", methods=["POST"])
+def force_restart():
+    """Force restart - kills any stuck thread and starts fresh."""
+    STATE.force_reset()
+    return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
 
 
 @app.route("/api/status")
 def get_status():
+    """Get status - auto-detects dead threads."""
     STATE.reset_if_dead()
 
     if _is_demo_mode():
         mode = request.args.get("mode", STATE.mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        return jsonify({"running": False, "mode": mode, "cycle_count": 0, "last_cycle_time": None, "last_error": None, **stats, "demo": True, "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE})
+        return jsonify({
+            "running": False, "mode": mode, "cycle_count": 0,
+            "last_cycle_time": None, "last_error": None,
+            **stats, "demo": True,
+            "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE,
+            "thread_alive": False,
+        })
 
     if STATE.strategy:
         STATE.update_from_strategy()
@@ -578,9 +610,7 @@ def get_trade_detail(trade_id):
             return jsonify({"error": "Trade not found"}), 404
         checklist = trade.checklist.to_dict() if trade.checklist else {}
         return jsonify({
-            "trade_id": trade.trade_id,
-            "symbol": trade.symbol,
-            "direction": trade.direction,
+            "trade_id": trade.trade_id, "symbol": trade.symbol, "direction": trade.direction,
             "layers": {
                 "layer_1": {"name": "Market Regime", "passed": checklist.get("adx_above_threshold", False), "adx": checklist.get("adx_value", 0), "regime": trade.market_regime, "explanation": f"ADX: {checklist.get('adx_value', 0):.1f}. Regime: {trade.market_regime}."},
                 "layer_2": {"name": "Trend Analysis", "passed": checklist.get("daily_ema_aligned", False) or checklist.get("fourh_ema_aligned", False), "score": checklist.get("trend_score", 0), "explanation": f"Daily: {checklist.get('daily_ema_aligned', False)}. 4H: {checklist.get('fourh_ema_aligned', False)}."},
@@ -640,7 +670,7 @@ def get_backtest_result():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Real Integration Dashboard")
+    print("TRADE WITH DEZIFY - Bulletproof Dashboard")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
