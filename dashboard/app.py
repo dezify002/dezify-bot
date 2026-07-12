@@ -826,4 +826,5 @@ if __name__ == "__main__":
     print("=" * 60)
     import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False) 
+"# DEPLOY_FIX: open_trades fallback active" 
