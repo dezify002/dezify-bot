@@ -1,8 +1,4 @@
-
-# Build version that captures stderr inline in the start response
-# Uses subprocess.run with capture_output for immediate error feedback
-
-app_code = r'''"""
+"""
 Trade With Dezify - Flask Dashboard
 FIXED: Capture stderr inline in start response, explicit PYTHONPATH
 """
@@ -538,7 +534,7 @@ while True:
                 stderr_f.close()
                 stdout_f.close()
                 _delete_pid_file()
-                
+
                 stderr_text = ""
                 stdout_text = ""
                 try:
@@ -548,7 +544,7 @@ while True:
                         stdout_text = STDOUT_LOG.read_text()
                 except Exception:
                     pass
-                
+
                 return jsonify({
                     "success": False,
                     "error": f"Bot process died after test run (exit code {process.returncode})",
@@ -852,9 +848,9 @@ def get_bot_logs():
             stdout_text = STDOUT_LOG.read_text()[-3000:]
     except Exception:
         pass
-    
+
     strategy_check = _check_strategy_file()
-    
+
     return jsonify({
         "stderr": stderr_text,
         "stdout": stdout_text,
@@ -907,14 +903,3 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-'''
-
-# Save to output
-from pathlib import Path
-output_path = "/mnt/agents/output/dashboard_app_inline.py"
-Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-with open(output_path, "w") as f:
-    f.write(app_code)
-
-print(f"Saved inline-error dashboard to: {output_path}")
-print(f"File size: {len(app_code)} chars")
