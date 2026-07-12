@@ -1,6 +1,6 @@
 """
 Trade With Dezify - Flask Dashboard
-FIXED: Remove refresh_universe from startup (was hanging on Bitget API call)
+With Force Stop / Reset feature
 """
 
 import os
@@ -10,18 +10,34 @@ import signal
 import json
 import time
 import traceback
+import shutil
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from flask import Flask, render_template, jsonify, request, session
+from flask import Flask, render_template, jsonify, request, session, send_file
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = "dezify_secret_key_2026"
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
+
+# =============================================================================
+# PATHS
+# =============================================================================
+BASE_DIR = Path(__file__).parent.parent.absolute()
+DATA_DIR = BASE_DIR / "data"
+PID_FILE = DATA_DIR / "bot.pid"
+STDERR_LOG = DATA_DIR / "bot_stderr.log"
+STDOUT_LOG = DATA_DIR / "bot_stdout.log"
+STATE_FILE = DATA_DIR / "strategy_state.json"
+ARCHIVE_DIR = DATA_DIR / "archive"
+DB_FILE = DATA_DIR / "trades.db"
+
+# Starting balance
+STARTING_EQUITY = 10000.0
 
 # =============================================================================
 # REAL BOT IMPORTS (for status queries only)
@@ -35,6 +51,7 @@ try:
 except Exception as e:
     print(f"❌ Bot modules not available: {e}")
     BOT_AVAILABLE = False
+    Database = None
 
 try:
     from backtest.engine import BacktestEngine
@@ -47,13 +64,8 @@ except Exception as e:
 
 
 # =============================================================================
-# SINGLE SOURCE OF TRUTH: PID FILE ONLY
+# PID / PROCESS HELPERS
 # =============================================================================
-PID_FILE = Path("data/bot.pid")
-STDERR_LOG = Path("data/bot_stderr.log")
-STDOUT_LOG = Path("data/bot_stdout.log")
-BASE_DIR = Path(__file__).parent.parent.absolute()
-
 
 def _read_pid_file() -> Optional[int]:
     try:
@@ -68,7 +80,7 @@ def _read_pid_file() -> Optional[int]:
 
 def _write_pid_file(pid: int, mode: str = "paper"):
     try:
-        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         with open(PID_FILE, "w") as f:
             json.dump({
                 "pid": pid,
@@ -117,28 +129,230 @@ def _get_bot_info() -> Dict:
     return {}
 
 
-def _list_data_files() -> List[str]:
+def _kill_process(pid: int, timeout: int = 2) -> Dict[str, Any]:
+    """Hard kill a process. Returns status dict."""
+    result = {"pid": pid, "sigterm": False, "sigkill": False, "alive_after": False}
+
+    if not _is_pid_alive(pid):
+        return {**result, "error": "Process already dead"}
+
+    # Try SIGTERM first
     try:
-        data_dir = Path("data")
-        if data_dir.exists():
-            return [str(f.relative_to(data_dir)) for f in data_dir.rglob("*") if f.is_file()]
+        os.kill(pid, signal.SIGTERM)
+        result["sigterm"] = True
+        time.sleep(timeout)
+        if not _is_pid_alive(pid):
+            return result
     except Exception as e:
-        return [f"Error: {e}"]
-    return []
+        result["term_error"] = str(e)
+
+    # SIGKILL fallback
+    try:
+        os.kill(pid, signal.SIGKILL)
+        result["sigkill"] = True
+        time.sleep(1)
+        result["alive_after"] = _is_pid_alive(pid)
+    except Exception as e:
+        result["kill_error"] = str(e)
+        result["alive_after"] = _is_pid_alive(pid)
+
+    return result
 
 
-def _check_strategy_file() -> Dict[str, Any]:
-    v3_file = BASE_DIR / "strategies" / "trend_pullback_v3.py"
-    v2_file = BASE_DIR / "strategies" / "trend_pullback.py"
-    return {
-        "v3_exists": v3_file.exists(),
-        "v3_size": v3_file.stat().st_size if v3_file.exists() else 0,
-        "v2_exists": v2_file.exists(),
-        "v2_size": v2_file.stat().st_size if v2_file.exists() else 0,
-        "base_dir": str(BASE_DIR),
-        "cwd": os.getcwd(),
-        "data_files": _list_data_files(),
+# =============================================================================
+# ARCHIVING
+# =============================================================================
+
+def _archive_session() -> Dict[str, Any]:
+    """
+    Archive current session data before reset.
+    Returns archive metadata.
+    """
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
+    archive_name = f"session_{timestamp}"
+    archive_path = ARCHIVE_DIR / f"{archive_name}.json"
+
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+
+    archive_data = {
+        "archived_at": datetime.now(timezone.utc).isoformat(),
+        "archive_name": archive_name,
+        "archive_path": str(archive_path),
     }
+
+    # Gather session data
+    try:
+        if Database:
+            db = Database()
+
+            # All trades (closed and open)
+            all_trades = db.get_all_trades(limit=1000)
+            trades_data = []
+            for t in all_trades:
+                trades_data.append({
+                    "trade_id": t.trade_id,
+                    "symbol": t.symbol,
+                    "direction": t.direction,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "realized_pnl": t.realized_pnl,
+                    "realized_pnl_pct": t.realized_pnl_pct,
+                    "r_multiple": t.r_multiple,
+                    "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                    "exit_time": t.exit_time.isoformat() if t.exit_time else None,
+                    "market_regime": t.market_regime,
+                    "is_open": not t.is_closed(),
+                })
+
+            # Open positions
+            open_trades = db.get_open_trades()
+            open_positions = []
+            for t in open_trades:
+                open_positions.append({
+                    "trade_id": t.trade_id,
+                    "symbol": t.symbol,
+                    "direction": t.direction,
+                    "entry_price": t.entry_price,
+                    "stop_loss": t.stop_loss_price,
+                    "take_profit": t.take_profit_price,
+                    "position_size": t.position_size,
+                    "entry_time": t.entry_time.isoformat() if t.entry_time else None,
+                })
+
+            # Equity history
+            equity = db.get_equity() or STARTING_EQUITY
+
+            # Performance stats
+            closed = [t for t in all_trades if t.is_closed()]
+            winners = [t for t in closed if t.is_winner()]
+
+            archive_data["session"] = {
+                "total_trades": len(all_trades),
+                "closed_trades": len(closed),
+                "open_positions": len(open_positions),
+                "winners": len(winners),
+                "losers": len(closed) - len(winners),
+                "win_rate_pct": round(len(winners) / len(closed) * 100, 2) if closed else 0,
+                "total_realized_pnl": round(sum(t.realized_pnl for t in closed), 2),
+                "avg_r_multiple": round(sum(t.r_multiple for t in closed) / len(closed), 2) if closed else 0,
+                "final_equity": round(equity, 2),
+                "starting_equity": STARTING_EQUITY,
+                "total_return_pct": round((equity - STARTING_EQUITY) / STARTING_EQUITY * 100, 2),
+            }
+            archive_data["trades"] = trades_data
+            archive_data["open_positions_at_archive"] = open_positions
+
+    except Exception as e:
+        archive_data["error"] = f"Failed to gather session data: {str(e)}"
+        archive_data["session"] = {"error": str(e)}
+
+    # Write archive file
+    try:
+        with open(archive_path, "w") as f:
+            json.dump(archive_data, f, indent=2, default=str)
+        archive_data["saved"] = True
+        archive_data["file_size_bytes"] = archive_path.stat().st_size
+    except Exception as e:
+        archive_data["saved"] = False
+        archive_data["save_error"] = str(e)
+
+    return archive_data
+
+
+def _list_archives() -> List[Dict[str, Any]]:
+    """List all archived sessions."""
+    archives = []
+    try:
+        if ARCHIVE_DIR.exists():
+            for f in sorted(ARCHIVE_DIR.glob("session_*.json"), reverse=True):
+                try:
+                    stat = f.stat()
+                    archives.append({
+                        "name": f.stem,
+                        "filename": f.name,
+                        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                        "size_bytes": stat.st_size,
+                        "path": str(f),
+                    })
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return archives
+
+
+# =============================================================================
+# STATE CLEARING
+# =============================================================================
+
+def _clear_session_state() -> Dict[str, Any]:
+    """Clear all live session state. Returns status dict."""
+    results = {
+        "pid_deleted": False,
+        "state_deleted": False,
+        "logs_cleared": False,
+        "db_reset": False,
+        "equity_reset": False,
+    }
+
+    # 1. Delete PID file
+    try:
+        _delete_pid_file()
+        results["pid_deleted"] = True
+    except Exception as e:
+        results["pid_error"] = str(e)
+
+    # 2. Delete strategy state file
+    try:
+        if STATE_FILE.exists():
+            STATE_FILE.unlink()
+        results["state_deleted"] = True
+    except Exception as e:
+        results["state_error"] = str(e)
+
+    # 3. Clear log files
+    try:
+        for log_file in [STDERR_LOG, STDOUT_LOG]:
+            if log_file.exists():
+                log_file.write_text("")
+        results["logs_cleared"] = True
+    except Exception as e:
+        results["logs_error"] = str(e)
+
+    # 4. Reset database — delete and reinitialize
+    try:
+        if Database:
+            db = Database()
+            # Close any open trades as "reset" exits
+            open_trades = db.get_open_trades()
+            for t in open_trades:
+                t.exit_price = t.entry_price  # Flat exit
+                t.exit_time = datetime.now(timezone.utc)
+                t.realized_pnl = 0.0
+                t.realized_pnl_pct = 0.0
+                t.r_multiple = 0.0
+                if t.checklist:
+                    t.checklist.exit_reason = "force_reset"
+                db.save_trade(t)
+
+            # Reset equity to starting balance
+            db.save_equity(STARTING_EQUITY)
+            results["equity_reset"] = True
+            results["db_reset"] = True
+            results["open_positions_closed"] = len(open_trades)
+    except Exception as e:
+        results["db_error"] = str(e)
+
+    # 5. Clear any run_bot.py script
+    try:
+        bot_script = DATA_DIR / "run_bot.py"
+        if bot_script.exists():
+            bot_script.unlink()
+        results["script_deleted"] = True
+    except Exception as e:
+        results["script_error"] = str(e)
+
+    return results
 
 
 # =============================================================================
@@ -295,7 +509,7 @@ def _is_demo_mode() -> bool:
 _positions_cache = []
 _trades_cache = []
 _stats_cache = {
-    "equity": 10000.0,
+    "equity": STARTING_EQUITY,
     "open_positions": 0,
     "today_pnl": 0.0,
     "today_trades": 0,
@@ -309,6 +523,8 @@ _mode = "paper"
 def _update_from_database():
     global _trades_cache, _stats_cache
     try:
+        if not Database:
+            return
         db = Database()
         all_trades = db.get_all_trades(limit=100)
         _trades_cache = []
@@ -336,7 +552,7 @@ def _update_from_database():
         win_rate = (winners / total_closed * 100) if total_closed > 0 else 0
         avg_r = sum(t.r_multiple for t in closed) / len(closed) if closed else 0
         latest_perf = db.get_daily_performance(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-        equity = latest_perf.ending_equity if latest_perf else (BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0)
+        equity = latest_perf.ending_equity if latest_perf else STARTING_EQUITY
         _stats_cache.update({
             "equity": round(equity, 2),
             "today_pnl": round(total_pnl, 2),
@@ -346,6 +562,29 @@ def _update_from_database():
         })
     except Exception as e:
         print(f"Database update error: {e}")
+
+
+def _list_data_files() -> List[str]:
+    try:
+        if DATA_DIR.exists():
+            return [str(f.relative_to(DATA_DIR)) for f in DATA_DIR.rglob("*") if f.is_file()]
+    except Exception as e:
+        return [f"Error: {e}"]
+    return []
+
+
+def _check_strategy_file() -> Dict[str, Any]:
+    v3_file = BASE_DIR / "strategies" / "trend_pullback_v3.py"
+    v2_file = BASE_DIR / "strategies" / "trend_pullback.py"
+    return {
+        "v3_exists": v3_file.exists(),
+        "v3_size": v3_file.stat().st_size if v3_file.exists() else 0,
+        "v2_exists": v2_file.exists(),
+        "v2_size": v2_file.stat().st_size if v2_file.exists() else 0,
+        "base_dir": str(BASE_DIR),
+        "cwd": os.getcwd(),
+        "data_files": _list_data_files(),
+    }
 
 
 # =============================================================================
@@ -381,6 +620,148 @@ def set_mode():
     _mode = data.get("mode", "paper")
     return jsonify({"success": True, "mode": _mode})
 
+
+# =============================================================================
+# FORCE STOP / RESET ENDPOINT
+# =============================================================================
+
+@app.route("/api/force-reset", methods=["POST"])
+def force_reset():
+    """
+    Force Stop / Reset endpoint.
+
+    1. Hard-kill any running bot subprocess (paper/live/backtest)
+    2. Archive current session data
+    3. Clear all live state (positions, trades, equity, caches)
+    4. Reset equity to $10,000
+    5. Delete PID and state files
+
+    Returns detailed status of what was done.
+    """
+    response = {
+        "success": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "processes_killed": [],
+        "archive": None,
+        "state_cleared": None,
+        "equity_reset_to": STARTING_EQUITY,
+    }
+
+    try:
+        # === STEP 1: HARD KILL ALL RUNNING PROCESSES ===
+        # Kill paper bot
+        pid = _read_pid_file()
+        if pid and _is_pid_alive(pid):
+            kill_result = _kill_process(pid)
+            response["processes_killed"].append({
+                "type": "paper_bot",
+                **kill_result,
+            })
+
+        # Check for any other python processes that might be run_bot.py
+        # (belt-and-suspenders: kill any process that has run_bot.py in its cmdline)
+        try:
+            import psutil
+            for proc in psutil.process_iter(['pid', 'cmdline']):
+                try:
+                    cmdline = proc.info.get('cmdline', []) or []
+                    if any('run_bot.py' in str(arg) for arg in cmdline):
+                        if proc.info['pid'] != os.getpid():  # Don't kill ourselves
+                            kill_result = _kill_process(proc.info['pid'])
+                            response["processes_killed"].append({
+                                "type": "orphan_bot",
+                                **kill_result,
+                            })
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except ImportError:
+            response["psutil_note"] = "psutil not available, orphan process cleanup skipped"
+
+        # === STEP 2: ARCHIVE CURRENT SESSION ===
+        response["archive"] = _archive_session()
+
+        # === STEP 3: CLEAR ALL LIVE STATE ===
+        response["state_cleared"] = _clear_session_state()
+
+        # === STEP 4: VERIFY CLEAN STATE ===
+        response["verify"] = {
+            "pid_file_exists": PID_FILE.exists(),
+            "state_file_exists": STATE_FILE.exists(),
+            "bot_running": _is_bot_running(),
+            "equity_after_reset": None,
+        }
+
+        try:
+            if Database:
+                db = Database()
+                response["verify"]["equity_after_reset"] = db.get_equity()
+                response["verify"]["open_positions_after_reset"] = len(db.get_open_trades())
+        except Exception as e:
+            response["verify"]["error"] = str(e)
+
+        response["message"] = (
+            f"Reset complete. Archived {response['archive'].get('session', {}).get('total_trades', 0)} trades. "
+            f"Equity reset to ${STARTING_EQUITY:,.2f}. "
+            f"Killed {len(response['processes_killed'])} process(es)."
+        )
+
+    except Exception as e:
+        response["success"] = False
+        response["error"] = str(e)
+        traceback_str = traceback.format_exc()
+        response["traceback"] = traceback_str
+
+    return jsonify(response)
+
+
+@app.route("/api/archives")
+def list_archives():
+    """List all archived sessions."""
+    return jsonify({
+        "success": True,
+        "archives": _list_archives(),
+        "archive_dir": str(ARCHIVE_DIR),
+        "archive_dir_exists": ARCHIVE_DIR.exists(),
+    })
+
+
+@app.route("/api/archives/<archive_name>")
+def get_archive(archive_name):
+    """Get a specific archive's content."""
+    try:
+        archive_path = ARCHIVE_DIR / f"{archive_name}.json"
+        if not archive_path.exists():
+            return jsonify({"success": False, "error": "Archive not found"}), 404
+
+        with open(archive_path, "r") as f:
+            data = json.load(f)
+
+        return jsonify({"success": True, "archive": data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/archives/download/<archive_name>")
+def download_archive(archive_name):
+    """Download an archive file."""
+    try:
+        archive_path = ARCHIVE_DIR / f"{archive_name}.json"
+        if not archive_path.exists():
+            return jsonify({"success": False, "error": "Archive not found"}), 404
+
+        return send_file(
+            archive_path,
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"{archive_name}.json",
+        )
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# EXISTING ROUTES (Start, Stop, Status, etc.)
+# =============================================================================
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
@@ -420,7 +801,7 @@ def start_bot():
                 }), 500
 
             # Create bot script — NO refresh_universe in startup!
-            bot_script = BASE_DIR / "data" / "run_bot.py"
+            bot_script = DATA_DIR / "run_bot.py"
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
             script_content = rf"""#!/usr/bin/env python3
@@ -453,9 +834,7 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# NOTE: refresh_universe() is NOT called here — it will be called in run_cycle()
-# This avoids hanging on Bitget API during startup
-
+# NOTE: refresh_universe() is called inside run_cycle(), not here
 print("[BOT] Starting main loop...", flush=True)
 import time
 cycle = 0
@@ -476,7 +855,6 @@ while True:
                 f.write(script_content)
 
             # Clear logs
-            STDERR_LOG.parent.mkdir(parents=True, exist_ok=True)
             try:
                 STDERR_LOG.write_text("")
                 STDOUT_LOG.write_text("")
@@ -542,37 +920,21 @@ while True:
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
+    """Graceful stop — SIGTERM then SIGKILL."""
     pid = _read_pid_file()
+    killed = False
     if pid and _is_pid_alive(pid):
         try:
             os.kill(pid, signal.SIGTERM)
             time.sleep(1)
             if _is_pid_alive(pid):
                 os.kill(pid, signal.SIGKILL)
+                time.sleep(0.5)
+            killed = not _is_pid_alive(pid)
         except Exception:
             pass
     _delete_pid_file()
-    return jsonify({"success": True, "message": "Bot stopped"})
-
-
-@app.route("/api/force-restart", methods=["POST"])
-def force_restart():
-    pid = _read_pid_file()
-    if pid and _is_pid_alive(pid):
-        try:
-            os.kill(pid, signal.SIGKILL)
-            time.sleep(1)
-        except Exception:
-            pass
-    _delete_pid_file()
-    try:
-        if STDERR_LOG.exists():
-            STDERR_LOG.write_text("")
-        if STDOUT_LOG.exists():
-            STDOUT_LOG.write_text("")
-    except Exception:
-        pass
-    return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
+    return jsonify({"success": True, "message": "Bot stopped", "killed": killed})
 
 
 @app.route("/api/status")
@@ -606,33 +968,34 @@ def get_status():
     live_unrealized_pnl = 0
     open_positions_count = 0
     try:
-        db = Database()
-        open_trades = db.get_open_trades()
-        open_positions_count = len(open_trades)
+        if Database:
+            db = Database()
+            open_trades = db.get_open_trades()
+            open_positions_count = len(open_trades)
 
-        try:
-            from core.bitget_client import BitgetClient
-            client = BitgetClient()
-            all_tickers = client.get_tickers(product_type="USDT-FUTURES")
-            price_map = {}
-            if all_tickers:
-                for ticker in all_tickers:
-                    sym = ticker.get("symbol", "")
-                    last = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
-                    if sym and last:
-                        try:
-                            price_map[sym] = float(last)
-                        except:
-                            pass
+            try:
+                from core.bitget_client import BitgetClient
+                client = BitgetClient()
+                all_tickers = client.get_tickers(product_type="USDT-FUTURES")
+                price_map = {}
+                if all_tickers:
+                    for ticker in all_tickers:
+                        sym = ticker.get("symbol", "")
+                        last = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
+                        if sym and last:
+                            try:
+                                price_map[sym] = float(last)
+                            except:
+                                pass
 
-            for t in open_trades:
-                current_price = price_map.get(t.symbol, t.entry_price)
-                if t.direction == "long" and t.position_size:
-                    live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
-                elif t.direction == "short" and t.position_size:
-                    live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
-        except Exception:
-            pass
+                for t in open_trades:
+                    current_price = price_map.get(t.symbol, t.entry_price)
+                    if t.direction == "long" and t.position_size:
+                        live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
+                    elif t.direction == "short" and t.position_size:
+                        live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -667,6 +1030,8 @@ def get_positions():
         return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
 
     try:
+        if not Database:
+            return jsonify({"positions": [], "count": 0, "mode": _mode, "demo": False})
         db = Database()
         open_trades = db.get_open_trades()
 
@@ -761,6 +1126,8 @@ def get_trades():
 @app.route("/api/trade/<trade_id>")
 def get_trade_detail(trade_id):
     try:
+        if not Database:
+            return jsonify({"error": "Database not available"}), 500
         db = Database()
         trade = db.get_trade(trade_id)
         if not trade:
@@ -800,7 +1167,7 @@ def get_balance():
         _update_from_database()
         return jsonify({"mode": "paper", "balance": _stats_cache["equity"], "source": "paper_account", "currency": "USDT", "demo": False})
     else:
-        equity = BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else 10000.0
+        equity = BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else STARTING_EQUITY
         return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_config", "currency": "USDT", "demo": False})
 
 
@@ -831,7 +1198,7 @@ def debug_info():
     return jsonify({
         "cwd": os.getcwd(),
         "base_dir": str(BASE_DIR),
-        "data_dir_exists": Path("data").exists(),
+        "data_dir_exists": DATA_DIR.exists(),
         "data_files": _list_data_files(),
         "strategy_check": _check_strategy_file(),
         "bot_running": _is_bot_running(),
@@ -860,7 +1227,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Fixed Dashboard")
+    print("TRADE WITH DEZIFY - Dashboard with Force Reset")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
