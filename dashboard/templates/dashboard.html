@@ -957,23 +957,9 @@
     <script>
 // =============================================================================
 // FORCE STOP / RESET HANDLER
-// Add this to your dashboard.js or main JavaScript file
 // =============================================================================
 
-/**
- * Force Stop / Reset functionality
- * 
- * Features:
- * - Confirmation dialog before destructive action
- * - Archives session before clearing
- * - Hard-kills all running processes
- * - Clears all state, resets equity to $10,000
- * - Shows archive list for downloading past sessions
- */
-
-// --- Force Reset Button Handler ---
 async function handleForceReset() {
-    // Step 1: Confirmation Dialog
     const confirmed = confirm(
         "⚠️ FORCE STOP / RESET\n\n" +
         "This will:\n" +
@@ -984,46 +970,36 @@ async function handleForceReset() {
         "Your trade history will be saved to an archive file before clearing.\n\n" +
         "Continue?"
     );
-    
-    if (!confirmed) {
-        console.log("Force reset cancelled by user");
-        return;
-    }
-    
-    // Step 2: Show loading state
+
+    if (!confirmed) return;
+
     const resetBtn = document.getElementById('forceResetBtn');
     if (resetBtn) {
         resetBtn.disabled = true;
         resetBtn.textContent = 'Resetting...';
-        resetBtn.classList.add('loading');
     }
-    
+
     try {
-        // Step 3: Call the reset endpoint
         const response = await fetch('/api/force-reset', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         });
-        
+
         const result = await response.json();
-        
-        // Step 4: Handle response
+
         if (result.success) {
-            // Build detailed success message
             let message = "✅ Reset Complete\n\n";
-            
-            // Processes killed
+
             if (result.processes_killed && result.processes_killed.length > 0) {
                 message += "Processes stopped:\n";
                 result.processes_killed.forEach(p => {
-                    message += `  • PID ${p.pid}: SIGTERM=${p.sigterm}, SIGKILL=${p.sigkill}\n`;
+                    message += `  • PID ${p.pid}: killed=${!p.alive_after}\n`;
                 });
                 message += "\n";
             } else {
                 message += "No running processes found.\n\n";
             }
-            
-            // Archive info
+
             if (result.archive && result.archive.saved) {
                 const session = result.archive.session || {};
                 message += "📁 Archive saved:\n";
@@ -1033,8 +1009,7 @@ async function handleForceReset() {
                 message += `  Total P&L: $${(session.total_realized_pnl || 0).toLocaleString()}\n`;
                 message += `  Win rate: ${session.win_rate_pct || 0}%\n\n`;
             }
-            
-            // State cleared
+
             if (result.state_cleared) {
                 message += "State cleared:\n";
                 message += `  • PID file: ${result.state_cleared.pid_deleted ? '✓' : '✗'}\n`;
@@ -1046,17 +1021,19 @@ async function handleForceReset() {
                     message += `  • Open positions closed: ${result.state_cleared.open_positions_closed}\n`;
                 }
             }
-            
+
             message += `\n💰 Account equity reset to: $10,000.00`;
             message += `\n🚀 You can now start a fresh session with your new strategy.`;
-            
+
             alert(message);
-            
-            // Refresh the dashboard UI
-            await refreshDashboard();
-            
+
+            // Refresh the dashboard
+            botRunning = false;
+            updateBotButtonState();
+            await updateDashboard();
+            await loadArchives();
+
         } else {
-            // Error response
             let errorMsg = "❌ Reset Failed\n\n";
             errorMsg += `Error: ${result.error || 'Unknown error'}\n`;
             if (result.traceback) {
@@ -1064,78 +1041,73 @@ async function handleForceReset() {
             }
             alert(errorMsg);
         }
-        
+
     } catch (error) {
-        console.error("Force reset error:", error);
         alert(`❌ Network error during reset: ${error.message}`);
     } finally {
-        // Restore button state
         if (resetBtn) {
             resetBtn.disabled = false;
-            resetBtn.textContent = 'Force Stop / Reset';
-            resetBtn.classList.remove('loading');
+            resetBtn.textContent = '⚠️ Force Reset';
         }
     }
 }
-
 
 // --- Archive Viewer ---
 async function loadArchives() {
     const archiveList = document.getElementById('archiveList');
     if (!archiveList) return;
-    
-    archiveList.innerHTML = '<li>Loading archives...</li>';
-    
+
+    archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">Loading archives...</li>';
+
     try {
         const response = await fetch('/api/archives');
         const result = await response.json();
-        
+
         if (!result.success || !result.archives || result.archives.length === 0) {
-            archiveList.innerHTML = '<li class="empty">No archived sessions yet</li>';
+            archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">No archived sessions yet</li>';
             return;
         }
-        
+
         archiveList.innerHTML = '';
         result.archives.forEach(archive => {
             const li = document.createElement('li');
-            li.className = 'archive-item';
-            
+            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid #1e293b;';
+
             const date = new Date(archive.created_at);
             const formattedDate = date.toLocaleString();
             const sizeKB = (archive.size_bytes / 1024).toFixed(1);
-            
+
             li.innerHTML = `
-                <div class="archive-info">
-                    <span class="archive-name">${archive.name}</span>
-                    <span class="archive-meta">${formattedDate} • ${sizeKB} KB</span>
+                <div>
+                    <div style="font-weight:600;font-size:0.85rem;">${archive.name}</div>
+                    <div style="font-size:0.75rem;color:#64748b;">${formattedDate} • ${sizeKB} KB</div>
                 </div>
-                <div class="archive-actions">
-                    <button onclick="viewArchive('${archive.name}')" class="btn-small">View</button>
-                    <a href="/api/archives/download/${archive.name}" class="btn-small" download>Download</a>
+                <div style="display:flex;gap:0.5rem;">
+                    <button onclick="viewArchive('${archive.name}')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button>
+                    <a href="/api/archives/download/${archive.name}" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a>
                 </div>
             `;
             archiveList.appendChild(li);
         });
-        
+
     } catch (error) {
-        archiveList.innerHTML = `<li class="error">Error loading archives: ${error.message}</li>`;
+        archiveList.innerHTML = `<li style="color:#ef4444;padding:1rem;text-align:center;">Error loading archives: ${error.message}</li>`;
     }
 }
-
 
 async function viewArchive(archiveName) {
     try {
         const response = await fetch(`/api/archives/${archiveName}`);
         const result = await response.json();
-        
+
         if (!result.success) {
             alert(`Error: ${result.error}`);
             return;
         }
-        
+
         const archive = result.archive;
         const session = archive.session || {};
-        
+
         let message = `📁 Archive: ${archiveName}\n\n`;
         message += `Archived: ${archive.archived_at}\n`;
         message += `Trades: ${session.total_trades || 0}\n`;
@@ -1145,144 +1117,20 @@ async function viewArchive(archiveName) {
         message += `Total P&L: $${(session.total_realized_pnl || 0).toLocaleString()}\n`;
         message += `Final Equity: $${(session.final_equity || 0).toLocaleString()}\n`;
         message += `Return: ${session.total_return_pct || 0}%\n`;
-        
+
         if (archive.open_positions_at_archive && archive.open_positions_at_archive.length > 0) {
             message += `\nOpen positions at archive:\n`;
             archive.open_positions_at_archive.forEach(pos => {
                 message += `  • ${pos.symbol} ${pos.direction} @ $${pos.entry_price}\n`;
             });
         }
-        
+
         alert(message);
-        
+
     } catch (error) {
         alert(`Error viewing archive: ${error.message}`);
     }
 }
-
-
-// --- Dashboard Refresh ---
-async function refreshDashboard() {
-    // Refresh status
-    try {
-        const statusRes = await fetch('/api/status');
-        const status = await statusRes.json();
-        updateStatusUI(status);
-    } catch (e) {
-        console.error("Failed to refresh status:", e);
-    }
-    
-    // Refresh positions
-    try {
-        const posRes = await fetch('/api/positions');
-        const positions = await posRes.json();
-        updatePositionsUI(positions);
-    } catch (e) {
-        console.error("Failed to refresh positions:", e);
-    }
-    
-    // Refresh trades
-    try {
-        const tradesRes = await fetch('/api/trades');
-        const trades = await tradesRes.json();
-        updateTradesUI(trades);
-    } catch (e) {
-        console.error("Failed to refresh trades:", e);
-    }
-    
-    // Refresh balance
-    try {
-        const balRes = await fetch('/api/balance');
-        const balance = await balRes.json();
-        updateBalanceUI(balance);
-    } catch (e) {
-        console.error("Failed to refresh balance:", e);
-    }
-}
-
-
-// --- UI Update Helpers (implement these based on your existing HTML) ---
-function updateStatusUI(status) {
-    const statusEl = document.getElementById('botStatus');
-    if (statusEl) {
-        statusEl.textContent = status.running ? 'ONLINE' : 'OFFLINE';
-        statusEl.className = status.running ? 'status-online' : 'status-offline';
-    }
-    
-    const startBtn = document.getElementById('startBotBtn');
-    const stopBtn = document.getElementById('stopBotBtn');
-    
-    if (startBtn) startBtn.disabled = status.running;
-    if (stopBtn) stopBtn.disabled = !status.running;
-}
-
-function updatePositionsUI(data) {
-    const container = document.getElementById('positionsContainer');
-    if (!container) return;
-    
-    if (!data.positions || data.positions.length === 0) {
-        container.innerHTML = '<div class="empty-state">No open positions</div>';
-        return;
-    }
-    
-    // Render positions table
-    let html = '<table class="positions-table"><thead><tr>';
-    html += '<th>Symbol</th><th>Side</th><th>Entry</th><th>Current</th><th>P&L %</th><th>R</th>';
-    html += '</tr></thead><tbody>';
-    
-    data.positions.forEach(pos => {
-        const pnlClass = pos.pnl_pct >= 0 ? 'positive' : 'negative';
-        html += `<tr>
-            <td>${pos.symbol}</td>
-            <td class="${pos.direction}">${pos.direction.toUpperCase()}</td>
-            <td>$${pos.entry_price.toLocaleString()}</td>
-            <td>$${pos.current_price.toLocaleString()}</td>
-            <td class="${pnlClass}">${pos.pnl_pct >= 0 ? '+' : ''}${pos.pnl_pct}%</td>
-            <td>${pos.r_multiple}R</td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    container.innerHTML = html;
-}
-
-function updateTradesUI(data) {
-    const container = document.getElementById('tradesContainer');
-    if (!container) return;
-    
-    if (!data.trades || data.trades.length === 0) {
-        container.innerHTML = '<div class="empty-state">No trade history</div>';
-        return;
-    }
-    
-    let html = '<table class="trades-table"><thead><tr>';
-    html += '<th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>R</th><th>Reason</th>';
-    html += '</tr></thead><tbody>';
-    
-    data.trades.forEach(trade => {
-        const pnlClass = trade.pnl >= 0 ? 'positive' : 'negative';
-        html += `<tr>
-            <td>${trade.symbol}</td>
-            <td class="${trade.direction}">${trade.direction.toUpperCase()}</td>
-            <td>$${trade.entry_price.toLocaleString()}</td>
-            <td>$${trade.exit_price ? trade.exit_price.toLocaleString() : '-'}</td>
-            <td class="${pnlClass}">${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toLocaleString()}</td>
-            <td>${trade.r_multiple}R</td>
-            <td>${trade.exit_reason || 'Open'}</td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    container.innerHTML = html;
-}
-
-function updateBalanceUI(data) {
-    const equityEl = document.getElementById('accountEquity');
-    if (equityEl && data.balance !== undefined) {
-        equityEl.textContent = `$${data.balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    }
-}
-
 
 // --- Initialize on page load ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -1291,18 +1139,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (forceResetBtn) {
         forceResetBtn.addEventListener('click', handleForceReset);
     }
-    
-    // Load archives if archive viewer exists
-    const archiveList = document.getElementById('archiveList');
-    if (archiveList) {
-        loadArchives();
-    }
-    
-    // Initial dashboard refresh
-    refreshDashboard();
-    
-    // Auto-refresh every 30 seconds
-    setInterval(refreshDashboard, 30000);
+
+    // Load archives
+    loadArchives();
 });
 
     </script>
