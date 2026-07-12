@@ -1,6 +1,7 @@
 """
 Trade With Dezify - Flask Dashboard
-FIXED: Capture stderr on subprocess death, check exit code immediately
+FIXED: Remove open-positions fallback from _is_bot_running() 
+This was causing the start route to never reach subprocess.Popen
 """
 
 import os
@@ -47,7 +48,7 @@ except Exception as e:
 
 
 # =============================================================================
-# SINGLE SOURCE OF TRUTH: PID FILE
+# SINGLE SOURCE OF TRUTH: PID FILE ONLY (no open positions fallback)
 # =============================================================================
 PID_FILE = Path("data/bot.pid")
 STDERR_LOG = Path("data/bot_stderr.log")
@@ -101,20 +102,15 @@ def _is_pid_alive(pid: Optional[int]) -> bool:
 
 
 def _is_bot_running() -> bool:
-    """Single source of truth - works across ALL devices and workers."""
+    """
+    SINGLE SOURCE OF TRUTH: Only a live PID means the bot is running.
+    NO open positions fallback — that was causing the start route to short-circuit.
+    """
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         return True
 
-    # FALLBACK: Check for open positions in database
-    try:
-        db = Database()
-        open_trades = db.get_open_trades()
-        if open_trades and len(open_trades) > 0:
-            return True
-    except Exception:
-        pass
-
+    # Clean up stale PID file
     if pid:
         _delete_pid_file()
     return False
@@ -406,7 +402,7 @@ def set_mode():
 def start_bot():
     global _mode
 
-    # === SINGLE SOURCE OF TRUTH ===
+    # === SINGLE SOURCE OF TRUTH: PID + LIVE PROCESS ONLY ===
     if _is_bot_running():
         info = _get_bot_info()
         return jsonify({
@@ -912,7 +908,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Fixed Dashboard")
+    print("TRADE WITH DEZIFY - Fixed Dashboard (no open-positions fallback)")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
