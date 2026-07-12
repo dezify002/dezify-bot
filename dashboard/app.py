@@ -1,6 +1,6 @@
 """
 Trade With Dezify - Flask Dashboard
-DIAGNOSTIC v3: PIPE capture, in-memory logs, file listing debug
+DIAGNOSTIC v4: Direct PIPE read with timeout for startup errors
 """
 
 import os
@@ -10,7 +10,7 @@ import signal
 import json
 import time
 import traceback
-import threading
+import select
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -48,40 +48,9 @@ except Exception as e:
 
 
 # =============================================================================
-# SINGLE SOURCE OF TRUTH: PID FILE + IN-MEMORY LOGS
+# SINGLE SOURCE OF TRUTH: PID FILE
 # =============================================================================
 PID_FILE = Path("data/bot.pid")
-
-# In-memory log storage (shared across workers via file, but also kept in memory)
-_bot_logs = []  # List of {"time": str, "msg": str, "type": "log"|"err"}
-_bot_log_lock = threading.Lock()
-_bot_process = None  # Reference to running subprocess
-
-
-def _add_bot_log(msg: str, log_type: str = "log"):
-    """Add a log entry to in-memory storage."""
-    with _bot_log_lock:
-        _bot_logs.append({
-            "time": datetime.now(timezone.utc).isoformat(),
-            "msg": msg,
-            "type": log_type,
-        })
-        # Keep only last 500 entries
-        if len(_bot_logs) > 500:
-            _bot_logs.pop(0)
-
-
-def _get_bot_logs(last_n: int = 100) -> List[Dict]:
-    """Get last N log entries."""
-    with _bot_log_lock:
-        return _bot_logs[-last_n:] if len(_bot_logs) > last_n else _bot_logs.copy()
-
-
-def _clear_bot_logs():
-    """Clear in-memory logs."""
-    global _bot_logs
-    with _bot_log_lock:
-        _bot_logs = []
 
 
 def _read_pid_file() -> Optional[int]:
@@ -188,26 +157,6 @@ def _check_strategy_file() -> Dict[str, Any]:
         "data_files": _list_data_files(),
     }
     return result
-
-
-def _read_subprocess_output(process: subprocess.Popen):
-    """Read subprocess stdout/stderr in a background thread."""
-    def reader():
-        try:
-            if process.stdout:
-                for line in iter(process.stdout.readline, ''):
-                    if line:
-                        _add_bot_log(line.rstrip(), "log")
-            if process.stderr:
-                for line in iter(process.stderr.readline, ''):
-                    if line:
-                        _add_bot_log(line.rstrip(), "err")
-        except Exception as e:
-            _add_bot_log(f"Log reader error: {e}", "err")
-
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
-    return thread
 
 
 # =============================================================================
@@ -454,7 +403,7 @@ def set_mode():
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
-    global _mode, _bot_process
+    global _mode
 
     # === SINGLE SOURCE OF TRUTH ===
     if _is_bot_running():
@@ -483,9 +432,6 @@ def start_bot():
 
         # === START BOT AS SEPARATE PROCESS ===
         try:
-            # Clear old logs
-            _clear_bot_logs()
-
             # Check strategy file exists
             strategy_check = _check_strategy_file()
             if not strategy_check["v3_exists"]:
@@ -495,11 +441,15 @@ def start_bot():
                     "strategy_check": strategy_check,
                 }), 500
 
-            # Create bot script that prints to stdout (captured via PIPE)
+            # Create bot script that writes to ABSOLUTE path log file
             bot_script = Path("data/run_bot.py")
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
-            script_content = r"""
+            # Use absolute path for log file to avoid CWD issues
+            abs_base = Path(__file__).parent.parent.absolute()
+            abs_log = abs_base / "data" / "bot.log"
+
+            script_content = rf"""
 import sys
 import os
 import time
@@ -507,130 +457,149 @@ import traceback
 from pathlib import Path
 from datetime import datetime, timezone
 
-# IMMEDIATE OUTPUT - before any imports
-print("[BOT] === PROCESS STARTED ===", flush=True)
-print(f"[BOT] Python: {sys.executable}", flush=True)
-print(f"[BOT] CWD: {os.getcwd()}", flush=True)
+# ABSOLUTE path for logging
+LOG_FILE = Path(r"{abs_log}")
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-base_dir = Path(__file__).parent.parent
-print(f"[BOT] Base dir: {base_dir}", flush=True)
+def log(msg):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{{timestamp}}] {{msg}}\n"
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(line)
+            f.flush()
+    except Exception as e:
+        pass  # If we can't log, we can't log
+
+# IMMEDIATE OUTPUT
+log("=" * 50)
+log("BOT PROCESS STARTED")
+log(f"Python: {{sys.executable}}")
+log(f"CWD: {{os.getcwd()}}")
+log(f"LOG_FILE: {{LOG_FILE}}")
+log(f"LOG_FILE exists: {{LOG_FILE.exists()}}")
 
 # Check strategy file
+base_dir = Path(r"{abs_base}")
 strategy_file = base_dir / "strategies" / "trend_pullback_v3.py"
-print(f"[BOT] Strategy file exists: {strategy_file.exists()}", flush=True)
+log(f"Strategy file: {{strategy_file}}")
+log(f"Strategy file exists: {{strategy_file.exists()}}")
 
 if not strategy_file.exists():
-    print("[BOT] ERROR: Strategy file NOT FOUND", flush=True)
+    log("ERROR: Strategy file NOT FOUND")
     sys.exit(1)
 
 # Try importing
 try:
-    print("[BOT] Importing TrendPullbackStrategy...", flush=True)
+    log("Importing TrendPullbackStrategy...")
     sys.path.insert(0, str(base_dir))
     from strategies.trend_pullback_v3 import TrendPullbackStrategy
-    print("[BOT] ✅ Strategy imported", flush=True)
+    log("✅ Strategy imported")
 except Exception as e:
-    print(f"[BOT] ❌ Import failed: {e}", flush=True)
-    traceback.print_exc()
+    log(f"❌ Import failed: {{e}}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        log(f"  {{line}}")
     sys.exit(1)
 
 # Try creating strategy
 try:
-    print("[BOT] Creating strategy...", flush=True)
+    log("Creating strategy...")
     strategy = TrendPullbackStrategy()
-    print("[BOT] ✅ Strategy created", flush=True)
+    log("✅ Strategy created")
 except Exception as e:
-    print(f"[BOT] ❌ Create failed: {e}", flush=True)
-    traceback.print_exc()
+    log(f"❌ Create failed: {{e}}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        log(f"  {{line}}")
     sys.exit(1)
 
 # Try refreshing universe
 try:
-    print("[BOT] Refreshing universe...", flush=True)
+    log("Refreshing universe...")
     strategy.refresh_universe()
-    print(f"[BOT] ✅ Universe: {len(strategy.universe)} symbols", flush=True)
+    log(f"✅ Universe: {{len(strategy.universe)}} symbols")
 except Exception as e:
-    print(f"[BOT] ❌ Universe refresh failed: {e}", flush=True)
-    traceback.print_exc()
+    log(f"❌ Universe refresh failed: {{e}}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        log(f"  {{line}}")
     sys.exit(1)
 
 # Main loop
-print("[BOT] Starting main loop...", flush=True)
+log("Starting main loop...")
 cycle = 0
 while True:
     cycle += 1
     try:
-        print(f"[BOT] Cycle {cycle} starting...", flush=True)
+        log(f"Cycle {{cycle}} starting...")
         result = strategy.run_cycle()
-        print(f"[BOT] ✅ Cycle {cycle} complete: {result}", flush=True)
+        log(f"✅ Cycle {{cycle}} complete: {{result}}")
     except Exception as e:
-        print(f"[BOT] ❌ Cycle {cycle} error: {e}", flush=True)
-        traceback.print_exc()
+        log(f"❌ Cycle {{cycle}} error: {{e}}")
+        traceback_str = traceback.format_exc()
+        for line in traceback_str.split("\n"):
+            log(f"  {{line}}")
 
-    print("[BOT] Sleeping 60s...", flush=True)
+    log("Sleeping 60s...")
     time.sleep(60)
 """
 
             with open(bot_script, "w") as f:
                 f.write(script_content)
 
-            # Start the bot process with PIPE to capture output
+            # Start the bot process - NO PIPE, let it write to file directly
             env = os.environ.copy()
             env["BOT_MODE"] = "paper"
             env["PYTHONUNBUFFERED"] = "1"
 
-            _add_bot_log("Starting bot subprocess...", "log")
-
             process = subprocess.Popen(
                 [sys.executable, str(bot_script)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 cwd=str(Path(__file__).parent.parent),
                 env=env,
-                text=True,
-                bufsize=1,
             )
-
-            _bot_process = process
 
             # Write PID file immediately
             _write_pid_file(process.pid, "paper")
-            _add_bot_log(f"Bot process started with PID {process.pid}", "log")
 
-            # Start background thread to read output
-            _read_subprocess_output(process)
-
-            # Wait and verify
+            # Wait and read log file
             time.sleep(5)
+
+            # Read log file directly
+            log_lines = []
+            try:
+                if abs_log.exists():
+                    with open(abs_log, "r", encoding="utf-8", errors="ignore") as f:
+                        log_lines = f.readlines()[-50:]
+            except Exception:
+                pass
 
             # Check if process died immediately
             if process.poll() is not None:
                 exit_code = process.returncode
-                logs = _get_bot_logs(50)
-
                 _delete_pid_file()
-                _bot_process = None
 
                 return jsonify({
                     "success": False,
                     "error": f"Bot process died immediately (exit code {exit_code})",
-                    "logs": logs,
+                    "logs": log_lines,
                     "strategy_check": strategy_check,
                 }), 500
 
-            # Process is still running - check for output
-            logs = _get_bot_logs(50)
-            has_output = len(logs) > 0
+            # Process is still running
+            has_output = len(log_lines) > 0
 
             if not has_output:
                 return jsonify({
                     "success": True,
-                    "message": "Bot process started but no output yet (may be hanging)",
+                    "message": "Bot process started but no log output yet",
                     "mode": "paper",
                     "pid": process.pid,
-                    "logs": logs,
+                    "logs": log_lines,
                     "strategy_check": strategy_check,
-                    "warning": "Process alive but no stdout - check if hanging",
+                    "warning": "Process alive but no log output - may be hanging",
                 })
 
             return jsonify({
@@ -638,20 +607,18 @@ while True:
                 "message": "Paper trading started",
                 "mode": "paper",
                 "pid": process.pid,
-                "logs": logs,
+                "logs": log_lines,
                 "strategy_check": strategy_check,
             })
 
         except Exception as e:
             _delete_pid_file()
-            _bot_process = None
             return jsonify({"success": False, "error": f"Failed to start bot: {str(e)}"}), 500
 
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
     """Stop the bot process."""
-    global _bot_process
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         try:
@@ -662,14 +629,12 @@ def stop_bot():
         except Exception:
             pass
     _delete_pid_file()
-    _bot_process = None
     return jsonify({"success": True, "message": "Bot stopped"})
 
 
 @app.route("/api/force-restart", methods=["POST"])
 def force_restart():
     """Force kill bot and reset."""
-    global _bot_process
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         try:
@@ -678,8 +643,13 @@ def force_restart():
         except Exception:
             pass
     _delete_pid_file()
-    _bot_process = None
-    _clear_bot_logs()
+    # Clear log file
+    try:
+        abs_log = Path(__file__).parent.parent.absolute() / "data" / "bot.log"
+        if abs_log.exists():
+            abs_log.write_text("")
+    except Exception:
+        pass
     return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
 
 
@@ -703,8 +673,15 @@ def get_status():
 
     _update_from_database()
 
-    # Get recent log entries
-    recent_logs = _get_bot_logs(50)
+    # Read log file if running
+    recent_logs = []
+    try:
+        abs_log = Path(__file__).parent.parent.absolute() / "data" / "bot.log"
+        if abs_log.exists() and is_running:
+            with open(abs_log, "r", encoding="utf-8", errors="ignore") as f:
+                recent_logs = f.readlines()[-20:]
+    except Exception:
+        pass
 
     # Calculate live unrealized PnL for all open positions
     live_unrealized_pnl = 0
@@ -909,17 +886,23 @@ def get_balance():
 
 @app.route("/api/bot-logs")
 def get_bot_logs():
-    """Get recent bot log entries from in-memory storage."""
-    logs = _get_bot_logs(200)
+    """Get recent bot log lines from absolute path file."""
+    log_lines = []
+    try:
+        abs_log = Path(__file__).parent.parent.absolute() / "data" / "bot.log"
+        if abs_log.exists():
+            with open(abs_log, "r", encoding="utf-8", errors="ignore") as f:
+                log_lines = f.readlines()[-100:]
+    except Exception:
+        pass
 
-    # Also check strategy file and data directory
     strategy_check = _check_strategy_file()
 
     return jsonify({
-        "logs": logs,
+        "logs": log_lines,
         "running": _is_bot_running(),
         "strategy_check": strategy_check,
-        "log_count": len(logs),
+        "log_count": len(log_lines),
     })
 
 
@@ -957,7 +940,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Diagnostic Dashboard v3")
+    print("TRADE WITH DEZIFY - Diagnostic Dashboard v4")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
