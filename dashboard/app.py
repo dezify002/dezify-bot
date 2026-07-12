@@ -100,13 +100,31 @@ def _is_pid_alive(pid: Optional[int]) -> bool:
 
 
 def _is_bot_running() -> bool:
-    """Single source of truth - works across ALL devices and workers."""
+    """
+    Single source of truth - works across ALL devices and workers.
+
+    v3.0 FIX: If PID file is missing but open positions exist in the database,
+    the bot is considered "effectively running" — this prevents the dashboard
+    from showing "stopped" when the bot thread died but positions remain active.
+    """
     pid = _read_pid_file()
-    if pid is None:
-        return False
-    if _is_pid_alive(pid):
+    if pid and _is_pid_alive(pid):
         return True
-    _delete_pid_file()
+
+    # FALLBACK: Check for open positions in database
+    # This handles the case where the bot thread crashed but positions remain
+    try:
+        db = Database()
+        open_trades = db.get_open_trades()
+        if open_trades and len(open_trades) > 0:
+            # Bot has open positions = it was running, consider it "effectively running"
+            return True
+    except Exception:
+        pass
+
+    # Clean up stale PID file if process is dead
+    if pid:
+        _delete_pid_file()
     return False
 
 
