@@ -1,6 +1,6 @@
 """
 Trade With Dezify - Flask Dashboard
-SEPARATE PROCESS VERSION - Bot runs outside Gunicorn workers
+DIAGNOSTIC VERSION - Maximum error capture for bot startup
 """
 
 import os
@@ -51,6 +51,7 @@ except Exception as e:
 # =============================================================================
 PID_FILE = Path("data/bot.pid")
 BOT_LOG_FILE = Path("data/bot.log")
+BOT_ERR_FILE = Path("data/bot.err")
 
 
 def _read_pid_file() -> Optional[int]:
@@ -102,27 +103,20 @@ def _is_pid_alive(pid: Optional[int]) -> bool:
 def _is_bot_running() -> bool:
     """
     Single source of truth - works across ALL devices and workers.
-
-    v3.0 FIX: If PID file is missing but open positions exist in the database,
-    the bot is considered "effectively running" — this prevents the dashboard
-    from showing "stopped" when the bot thread died but positions remain active.
     """
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         return True
 
     # FALLBACK: Check for open positions in database
-    # This handles the case where the bot thread crashed but positions remain
     try:
         db = Database()
         open_trades = db.get_open_trades()
         if open_trades and len(open_trades) > 0:
-            # Bot has open positions = it was running, consider it "effectively running"
             return True
     except Exception:
         pass
 
-    # Clean up stale PID file if process is dead
     if pid:
         _delete_pid_file()
     return False
@@ -143,9 +137,21 @@ def _read_bot_log(last_n: int = 50) -> List[str]:
     """Read last N lines from bot log file."""
     try:
         if BOT_LOG_FILE.exists():
-            with open(BOT_LOG_FILE, "r") as f:
+            with open(BOT_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
-                return lines[-last_n:]
+                return lines[-last_n:] if len(lines) > last_n else lines
+    except Exception:
+        pass
+    return []
+
+
+def _read_bot_err(last_n: int = 50) -> List[str]:
+    """Read last N lines from bot stderr file."""
+    try:
+        if BOT_ERR_FILE.exists():
+            with open(BOT_ERR_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+                return lines[-last_n:] if len(lines) > last_n else lines
     except Exception:
         pass
     return []
@@ -423,13 +429,19 @@ def start_bot():
             return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
         # === START BOT AS SEPARATE PROCESS ===
-        # This is the key fix: bot runs in its OWN process, not inside Gunicorn
         try:
-            # Create a temporary script to run the bot
+            # Clear old logs
+            try:
+                BOT_LOG_FILE.write_text("")
+                BOT_ERR_FILE.write_text("")
+            except Exception:
+                pass
+
+            # Create bot script with MAXIMUM error capture
             bot_script = Path("data/run_bot.py")
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
-            script_content = """
+            script_content = r"""
 import sys
 import os
 import time
@@ -437,84 +449,152 @@ import traceback
 from pathlib import Path
 from datetime import datetime, timezone
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Setup paths
+base_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(base_dir))
 
-from strategies.trend_pullback_v3 import TrendPullbackStrategy
-
-# Redirect output to log file
+# Setup logging FIRST - before any imports that might fail
 log_file = Path("data/bot.log")
+err_file = Path("data/bot.err")
 log_file.parent.mkdir(parents=True, exist_ok=True)
 
-class Logger:
-    def __init__(self, filepath):
-        self.file = open(filepath, "a")
-        self.stdout = sys.stdout
-        sys.stdout = self
-        sys.stderr = self
+def log(msg):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] {msg}\n"
+    try:
+        with open(log_file, "a") as f:
+            f.write(line)
+            f.flush()
+    except Exception:
+        pass
 
-    def write(self, message):
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        if message.strip():
-            self.file.write(f"[{timestamp}] {message}")
-            self.file.flush()
-        self.stdout.write(message)
+def err(msg):
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{timestamp}] ERROR: {msg}\n"
+    try:
+        with open(err_file, "a") as f:
+            f.write(line)
+            f.flush()
+    except Exception:
+        pass
 
-    def flush(self):
-        self.file.flush()
-        self.stdout.flush()
+log("=" * 50)
+log("BOT PROCESS STARTING")
+log(f"Python: {sys.executable}")
+log(f"CWD: {os.getcwd()}")
+log(f"Python path: {sys.path}")
 
-logger = Logger(log_file)
+# Check if strategy file exists
+strategy_file = base_dir / "strategies" / "trend_pullback_v3.py"
+log(f"Strategy file exists: {strategy_file.exists()}")
+if not strategy_file.exists():
+    err(f"Strategy file NOT FOUND: {strategy_file}")
+    sys.exit(1)
 
-print("=" * 50)
-print("BOT PROCESS STARTED")
-print("=" * 50)
-
+# Try importing
 try:
-    strategy = TrendPullbackStrategy()
-    print("Strategy created")
-
-    strategy.refresh_universe()
-    print(f"Universe: {len(strategy.universe)} symbols")
-
-    cycle = 0
-    while True:
-        cycle += 1
-        print(f"Cycle {cycle}...")
-        result = strategy.run_cycle()
-        print(f"Cycle {cycle} complete: {result}")
-        time.sleep(60)
-
+    log("Importing TrendPullbackStrategy...")
+    from strategies.trend_pullback_v3 import TrendPullbackStrategy
+    log("✅ Strategy imported successfully")
 except Exception as e:
-    print(f"BOT CRASHED: {e}")
-    traceback.print_exc()
-    raise
+    err(f"FAILED to import TrendPullbackStrategy: {e}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        err(line)
+    sys.exit(1)
+
+# Try creating strategy
+try:
+    log("Creating strategy instance...")
+    strategy = TrendPullbackStrategy()
+    log("✅ Strategy created")
+except Exception as e:
+    err(f"FAILED to create strategy: {e}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        err(line)
+    sys.exit(1)
+
+# Try refreshing universe
+try:
+    log("Refreshing universe...")
+    strategy.refresh_universe()
+    log(f"✅ Universe: {len(strategy.universe)} symbols")
+except Exception as e:
+    err(f"FAILED to refresh universe: {e}")
+    traceback_str = traceback.format_exc()
+    for line in traceback_str.split("\n"):
+        err(line)
+    sys.exit(1)
+
+# Main loop
+log("Starting main loop...")
+cycle = 0
+while True:
+    cycle += 1
+    try:
+        log(f"Cycle {cycle} starting...")
+        result = strategy.run_cycle()
+        log(f"✅ Cycle {cycle} complete: {result}")
+    except Exception as e:
+        err(f"Cycle {cycle} error: {e}")
+        traceback_str = traceback.format_exc()
+        for line in traceback_str.split("\n"):
+            err(line)
+
+    log("Sleeping 60s...")
+    time.sleep(60)
 """
 
             with open(bot_script, "w") as f:
                 f.write(script_content)
 
-            # Start the bot process
+            # Open log files for the subprocess to write to
+            log_f = open(BOT_LOG_FILE, "w")
+            err_f = open(BOT_ERR_FILE, "w")
+
+            # Start the bot process with explicit stdout/stderr
+            env = os.environ.copy()
+            env["BOT_MODE"] = "paper"
+            env["PYTHONUNBUFFERED"] = "1"
+
             process = subprocess.Popen(
                 [sys.executable, str(bot_script)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_f,
+                stderr=err_f,
                 cwd=str(Path(__file__).parent.parent),
+                env=env,
             )
 
-            # Write PID file
+            # Write PID file immediately
             _write_pid_file(process.pid, "paper")
 
-            # Wait a moment and verify
-            time.sleep(2)
-            if not _is_pid_alive(process.pid):
+            # Wait and verify
+            time.sleep(3)
+
+            # Check if process died immediately
+            if process.poll() is not None:
+                exit_code = process.returncode
+                log_f.flush()
+                err_f.flush()
+                log_f.close()
+                err_f.close()
+
+                logs = _read_bot_log(30)
+                errors = _read_bot_err(30)
+
                 _delete_pid_file()
-                logs = _read_bot_log(20)
-                log_text = "\n".join(logs) if logs else "No log output"
+
                 return jsonify({
                     "success": False,
-                    "error": "Bot process failed to start",
-                    "logs": log_text,
+                    "error": f"Bot process died immediately (exit code {exit_code})",
+                    "logs": logs,
+                    "errors": errors,
                 }), 500
+
+            # Process is still running - close file handles (subprocess keeps them)
+            log_f.close()
+            err_f.close()
 
             return jsonify({
                 "success": True,
@@ -560,6 +640,11 @@ def force_restart():
             BOT_LOG_FILE.unlink()
         except Exception:
             pass
+    if BOT_ERR_FILE.exists():
+        try:
+            BOT_ERR_FILE.unlink()
+        except Exception:
+            pass
     return jsonify({"success": True, "message": "State reset. You can now click Start Bot."})
 
 
@@ -584,8 +669,10 @@ def get_status():
 
     # Get recent log lines if running
     recent_logs = []
+    recent_errors = []
     if is_running:
         recent_logs = _read_bot_log(10)
+        recent_errors = _read_bot_err(10)
 
     # Calculate live unrealized PnL for all open positions
     live_unrealized_pnl = 0
@@ -595,27 +682,29 @@ def get_status():
         open_trades = db.get_open_trades()
         open_positions_count = len(open_trades)
 
-        # Fetch all tickers once
-        from core.bitget_client import BitgetClient
-        client = BitgetClient()
-        all_tickers = client.get_tickers(product_type="USDT-FUTURES")
-        price_map = {}
-        if all_tickers:
-            for ticker in all_tickers:
-                sym = ticker.get("symbol", "")
-                last = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
-                if sym and last:
-                    try:
-                        price_map[sym] = float(last)
-                    except:
-                        pass
+        try:
+            from core.bitget_client import BitgetClient
+            client = BitgetClient()
+            all_tickers = client.get_tickers(product_type="USDT-FUTURES")
+            price_map = {}
+            if all_tickers:
+                for ticker in all_tickers:
+                    sym = ticker.get("symbol", "")
+                    last = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
+                    if sym and last:
+                        try:
+                            price_map[sym] = float(last)
+                        except:
+                            pass
 
-        for t in open_trades:
-            current_price = price_map.get(t.symbol, t.entry_price)
-            if t.direction == "long" and t.position_size:
-                live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
-            elif t.direction == "short" and t.position_size:
-                live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
+            for t in open_trades:
+                current_price = price_map.get(t.symbol, t.entry_price)
+                if t.direction == "long" and t.position_size:
+                    live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
+                elif t.direction == "short" and t.position_size:
+                    live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -639,6 +728,7 @@ def get_status():
         "pid": info.get("pid"),
         "started_at": info.get("started_at"),
         "recent_logs": recent_logs,
+        "recent_errors": recent_errors,
     })
 
 
@@ -648,24 +738,20 @@ def get_positions():
         mode = request.args.get("mode", _mode)
         return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
 
-    # === LIVE PRICE QUERY - works even when bot thread is dead ===
     try:
         db = Database()
         open_trades = db.get_open_trades()
 
-        # Fetch ALL tickers at once (more efficient than per-symbol)
         live_prices = {}
         price_source = "entry_fallback"
 
         try:
             from core.bitget_client import BitgetClient
             client = BitgetClient()
-            # get_tickers returns list of all tickers
             all_tickers = client.get_tickers(product_type="USDT-FUTURES")
             if all_tickers:
                 for ticker in all_tickers:
                     symbol = ticker.get("symbol", "")
-                    # Bitget returns "last" or "close" for current price
                     last_price = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
                     if symbol and last_price:
                         try:
@@ -680,15 +766,13 @@ def get_positions():
         for t in open_trades:
             current_price = live_prices.get(t.symbol, t.entry_price)
 
-            # Calculate unrealized PnL percentage
             pnl_pct = 0.0
             if t.entry_price and t.entry_price > 0:
                 if t.direction == "long":
                     pnl_pct = ((current_price - t.entry_price) / t.entry_price) * 100
-                else:  # short
+                else:
                     pnl_pct = ((t.entry_price - current_price) / t.entry_price) * 100
 
-            # Calculate unrealized PnL in USD
             unrealized_pnl = 0.0
             if t.position_size:
                 if t.direction == "long":
@@ -696,7 +780,6 @@ def get_positions():
                 else:
                     unrealized_pnl = (t.entry_price - current_price) * t.position_size
 
-            # Calculate R-multiple based on current price vs stop loss
             r_multiple = 0.0
             stop_distance = abs(t.entry_price - t.stop_loss_price) if t.stop_loss_price else 0
             if stop_distance > 0:
@@ -797,7 +880,12 @@ def get_balance():
 def get_bot_logs():
     """Get recent bot log lines."""
     lines = _read_bot_log(100)
-    return jsonify({"logs": lines, "running": _is_bot_running()})
+    errors = _read_bot_err(100)
+    return jsonify({
+        "logs": lines,
+        "errors": errors,
+        "running": _is_bot_running(),
+    })
 
 
 @app.route("/api/performance-report")
@@ -817,7 +905,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Separate Process Dashboard")
+    print("TRADE WITH DEZIFY - Diagnostic Dashboard")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
@@ -826,5 +914,4 @@ if __name__ == "__main__":
     print("=" * 60)
     import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False) 
-"# DEPLOY_FIX: open_trades fallback active" 
+    app.run(host="0.0.0.0", port=port, debug=False)
