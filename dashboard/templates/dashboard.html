@@ -397,6 +397,7 @@
             .explain-panel { width: 100%; right: -100%; }
         }
     </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -679,9 +680,7 @@
                 } catch (e) {}
                 
                 botRunning = false;
-                updateDashboardForMode(currentMode);
-                status.className = 'status offline';
-                statusText.textContent = 'Offline';
+                updateBotButtonState();
                 stopPolling();
             }
         }
@@ -889,7 +888,56 @@
             if (e.key === 'Escape') closeExplain();
         });
 
-        // Initialize
+        // CRITICAL FIX: Sync bot state from backend on page load
+        // This prevents "stopped" default when refreshing
+        async function syncBotState() {
+            try {
+                const res = await fetch('/api/status?mode=' + currentMode);
+                const data = await res.json();
+
+                // Sync botRunning with REAL backend state
+                botRunning = data.running === true;
+
+                // Update UI immediately
+                updateBotButtonState();
+
+                console.log('Bot state synced:', botRunning ? 'RUNNING' : 'STOPPED');
+            } catch (e) {
+                console.error('Failed to sync bot state:', e);
+            }
+        }
+
+        /**
+         * Update Start/Stop button based on botRunning variable
+         */
+        function updateBotButtonState() {
+            const btn = document.getElementById('startBtn');
+            const status = document.getElementById('botStatus');
+            const statusText = document.getElementById('statusText');
+
+            if (botRunning) {
+                btn.textContent = '⏹ Stop Bot';
+                btn.classList.add('stop');
+
+                if (currentMode === 'live') {
+                    status.className = 'status live';
+                    statusText.textContent = 'LIVE TRADING';
+                } else if (currentMode === 'paper') {
+                    status.className = 'status online';
+                    statusText.textContent = 'Paper Trading';
+                } else {
+                    status.className = 'status online';
+                    statusText.textContent = 'Backtesting';
+                }
+            } else {
+                updateDashboardForMode(currentMode);
+                status.className = 'status offline';
+                statusText.textContent = 'Offline';
+            }
+        }
+
+        // Initialize — sync state FIRST, then fetch balance
+        syncBotState();
         fetchBalance('paper');
     </script>
 </body>
