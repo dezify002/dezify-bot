@@ -421,7 +421,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from strategies.trend_pullback import TrendPullbackStrategy
+from strategies.trend_pullback_v3 import TrendPullbackStrategy
 
 # Redirect output to log file
 log_file = Path("data/bot.log")

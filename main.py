@@ -1,184 +1,135 @@
 """
-Main entry point for the crypto perpetual futures bot.
-Handles initialization, mode selection, and the main loop.
+Dezify Trading Bot - Main Entry Point
+v3.0: Candle-close-driven evaluation using APScheduler
 """
 
-import argparse
 import sys
 import time
-from datetime import datetime
+import signal
+import argparse
+from pathlib import Path
 
-from config.settings import validate_config, TRADING_MODE
-from strategies.trend_pullback import TrendPullbackStrategy
+sys.path.insert(0, str(Path(__file__).parent))
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from strategies.trend_pullback_v3 import TrendPullbackStrategy
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-
-def get_trading_mode():
-    """Get trading mode from env or default."""
-    return TRADING_MODE
-
-
-def is_live() -> bool:
-    """Check if running in live mode."""
-    return TRADING_MODE == "live"
+# Global strategy instance
+_strategy = None
+_scheduler = None
 
 
-def is_paper() -> bool:
-    """Check if running in paper mode."""
-    return TRADING_MODE == "paper"
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully."""
+    logger.info("Shutdown signal received, stopping scheduler...")
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
+    sys.exit(0)
 
 
-def is_backtest() -> bool:
-    """Check if running in backtest mode."""
-    return TRADING_MODE == "backtest"
+def run_strategy_cycle(timeframe: str = "1H"):
+    """Called by APScheduler when a candle closes."""
+    global _strategy
 
+    if _strategy is None:
+        logger.error("Strategy not initialized")
+        return
 
-def run_backtest():
-    """Run backtest mode."""
-    logger.info("=" * 60)
-    logger.info("BACKTEST MODE")
-    logger.info("=" * 60)
-    
-    logger.info("Backtest mode not yet implemented - use backtest.py")
-    return True
-
-
-def run_paper_trading():
-    """Run paper trading mode."""
-    logger.info("=" * 60)
-    logger.info("PAPER TRADING MODE")
-    logger.info("=" * 60)
-    
-    strategy = TrendPullbackStrategy()
-    
-    # Initial setup
-    strategy.refresh_universe()
-    
-    cycle_count = 0
-    
     try:
-        while True:
-            cycle_count += 1
-            logger.info(f"\n--- Cycle {cycle_count} ---")
-            
-            # Run one full strategy cycle
-            result = strategy.run_cycle()
-            
-            logger.info(
-                f"Cycle result: {result['exits']} exits, "
-                f"{result['entries']} entries, "
-                f"{result['open_positions']} open positions"
-            )
-            
-            # Status check every 10 cycles
-            if cycle_count % 10 == 0:
-                logger.info(f"Completed {cycle_count} cycles")
-            
-            # Sleep until next cycle
-            sleep_seconds = 3600  # 1 hour for paper
-            logger.info(f"Sleeping {sleep_seconds}s until next cycle...")
-            time.sleep(sleep_seconds)
-            
-    except KeyboardInterrupt:
-        logger.info("Paper trading stopped by user")
-        return True
-
-
-def run_live_trading():
-    """Run live trading mode."""
-    logger.info("=" * 60)
-    logger.info("LIVE TRADING MODE")
-    logger.info("=" * 60)
-    
-    # Extra safety check
-    confirm = input("Confirm live trading? Type 'LIVE' to proceed: ")
-    if confirm != "LIVE":
-        logger.warning("Live trading not confirmed. Exiting.")
-        return False
-    
-    strategy = TrendPullbackStrategy()
-    strategy.refresh_universe()
-    
-    cycle_count = 0
-    
-    try:
-        while True:
-            cycle_count += 1
-            logger.info(f"\n--- Live Cycle {cycle_count} ---")
-            
-            result = strategy.run_cycle()
-            
-            logger.info(
-                f"Cycle result: {result['exits']} exits, "
-                f"{result['entries']} entries, "
-                f"{result['open_positions']} open positions"
-            )
-            
-            # Sleep until next cycle (4H candle close)
-            time.sleep(14400)
-            
-    except KeyboardInterrupt:
-        logger.info("Live trading stopped by user")
-        return True
+        logger.info(f"Running strategy cycle for {timeframe} candle close")
+        result = _strategy.run_cycle(timeframe=timeframe)
+        logger.info(f"Cycle result: {result}")
+    except Exception as e:
+        logger.error(f"Strategy cycle error: {e}", exc_info=True)
 
 
 def main():
-    """Main entry point."""
-    print("=" * 60)
-    print("CRYPTO PERPETUAL FUTURES BOT")
-    print("Trend-Pullback Strategy | 8-Layer Architecture")
-    print("=" * 60)
-    
-    # Parse arguments
-    parser = argparse.ArgumentParser(description="Crypto Perpetual Futures Bot")
-    parser.add_argument(
-        "--mode",
-        choices=["backtest", "paper", "live"],
-        default=None,
-        help="Override trading mode from .env"
-    )
+    global _strategy, _scheduler
+
+    parser = argparse.ArgumentParser(description="Dezify Trading Bot")
+    parser.add_argument("--mode", choices=["paper", "live", "backtest"], 
+                        default="paper", help="Trading mode")
+    parser.add_argument("--timeframe", default="1H", 
+                        choices=["15m", "30m", "1H", "2H", "4H", "6H", "12H", "1D"],
+                        help="Candle timeframe for evaluation")
+    parser.add_argument("--start-date", default="2024-01-01",
+                        help="Backtest start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", default="2024-12-31",
+                        help="Backtest end date (YYYY-MM-DD)")
+    parser.add_argument("--initial-equity", type=float, default=10000,
+                        help="Initial equity for backtest")
     args = parser.parse_args()
-    
-    # Determine mode
-    mode = args.mode or get_trading_mode()
-    print(f"\nTrading mode: {mode.upper()}")
-    
-    # Validate configuration
-    config_result = validate_config()
-    if not config_result["valid"]:
-        print("\n❌ Configuration errors:")
-        for error in config_result["errors"]:
-            print(f"  - {error}")
-        for warning in config_result["warnings"]:
-            print(f"  ⚠️  {warning}")
-        sys.exit(1)
-    
-    if config_result["warnings"]:
-        print("\n⚠️  Configuration warnings:")
-        for warning in config_result["warnings"]:
-            print(f"  - {warning}")
-    
-    print("\n✅ Configuration valid")
-    
-    # Run based on mode
-    if mode == "backtest":
-        success = run_backtest()
-    elif mode == "paper":
-        success = run_paper_trading()
-    elif mode == "live":
-        success = run_live_trading()
-    else:
-        print(f"Unknown mode: {mode}")
-        sys.exit(1)
-    
-    if success:
-        print("\n✅ Bot completed successfully")
-        sys.exit(0)
-    else:
-        print("\n❌ Bot encountered errors")
-        sys.exit(1)
+
+    # Setup signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    logger.info("=" * 60)
+    logger.info("DEZIFY TRADING BOT v3.0")
+    logger.info(f"Mode: {args.mode}")
+    logger.info(f"Timeframe: {args.timeframe}")
+    logger.info("=" * 60)
+
+    if args.mode == "backtest":
+        from backtest.engine import BacktestEngine
+        logger.info(f"Running backtest: {args.start_date} to {args.end_date}")
+        engine = BacktestEngine(args.start_date, args.end_date, args.initial_equity)
+        result = engine.run()
+        logger.info(f"Backtest complete: Return={result.total_return_pct:.2f}%")
+        return
+
+    # Initialize strategy
+    logger.info("Initializing strategy...")
+    _strategy = TrendPullbackStrategy()
+    _strategy.refresh_universe()
+
+    if args.mode == "paper":
+        logger.info("Running in PAPER mode")
+    elif args.mode == "live":
+        logger.info("Running in LIVE mode")
+
+    # Setup APScheduler for candle-close timing
+    _scheduler = BackgroundScheduler()
+
+    # Map timeframe to cron expression
+    cron_map = {
+        "15m": "*/15 * * * *",      # Every 15 minutes
+        "30m": "*/30 * * * *",      # Every 30 minutes
+        "1H": "0 * * * *",          # Every hour at :00
+        "2H": "0 */2 * * *",        # Every 2 hours
+        "4H": "0 */4 * * *",        # Every 4 hours
+        "6H": "0 */6 * * *",        # Every 6 hours
+        "12H": "0 */12 * * *",      # Every 12 hours
+        "1D": "0 0 * * *",          # Daily at midnight
+    }
+
+    cron_expr = cron_map.get(args.timeframe, "0 * * * *")
+
+    logger.info(f"Scheduling cycles with cron: {cron_expr}")
+
+    _scheduler.add_job(
+        run_strategy_cycle,
+        trigger=CronTrigger.from_crontab(cron_expr),
+        kwargs={"timeframe": args.timeframe},
+        id="strategy_cycle",
+        replace_existing=True,
+        max_instances=1,  # Prevent overlapping runs
+    )
+
+    _scheduler.start()
+    logger.info("Scheduler started. Waiting for candle closes...")
+
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
+        signal_handler(signal.SIGINT, None)
 
 
 if __name__ == "__main__":
