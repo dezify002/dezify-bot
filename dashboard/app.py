@@ -782,7 +782,71 @@ def start_bot():
     _mode = data.get("mode", _mode)
 
     if _mode == "backtest":
-        return jsonify({"success": False, "error": "Backtest mode not yet implemented in separate process."}), 503
+        if not BACKTEST_AVAILABLE:
+            return jsonify({"success": False, "error": "Backtest engine not available."}), 500
+
+        try:
+            start_date = data.get("start_date", "2024-01-01")
+            end_date = data.get("end_date", "2024-12-31")
+            initial_equity = data.get("initial_equity", 10000)
+
+            import threading
+
+            def run_backtest():
+                try:
+                    engine = BacktestEngine(start_date, end_date, initial_equity)
+                    result = engine.run()
+
+                    result_file = DATA_DIR / "backtest_result.json"
+                    with open(result_file, "w") as f:
+                        json.dump({
+                            "status": "complete",
+                            "result": {
+                                "total_trades": result.total_trades,
+                                "winning_trades": result.winning_trades,
+                                "losing_trades": result.losing_trades,
+                                "win_rate": result.win_rate,
+                                "avg_r": result.avg_r,
+                                "profit_factor": result.profit_factor,
+                                "total_return_pct": result.total_return_pct,
+                                "max_drawdown_pct": result.max_drawdown_pct,
+                                "final_equity": result.final_equity,
+                                "initial_equity": result.initial_equity,
+                            },
+                            "trades": [
+                                {
+                                    "trade_id": t.trade_id,
+                                    "symbol": t.symbol,
+                                    "direction": t.direction,
+                                    "entry_price": t.entry_price,
+                                    "exit_price": t.exit_price,
+                                    "pnl": t.realized_pnl,
+                                    "r_multiple": t.r_multiple,
+                                    "exit_reason": t.exit_reason,
+                                }
+                                for t in result.trades if t.is_closed()
+                            ],
+                        }, f, indent=2, default=str)
+                except Exception as e:
+                    result_file = DATA_DIR / "backtest_result.json"
+                    with open(result_file, "w") as f:
+                        json.dump({"status": "error", "error": str(e)}, f)
+
+            thread = threading.Thread(target=run_backtest)
+            thread.daemon = True
+            thread.start()
+
+            return jsonify({
+                "success": True,
+                "message": "Backtest started",
+                "mode": "backtest",
+                "start_date": start_date,
+                "end_date": end_date,
+                "initial_equity": initial_equity,
+            })
+
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Failed to start backtest: {str(e)}"}), 500
 
     elif _mode == "live":
         return jsonify({"success": False, "error": "Live mode not available through dashboard."}), 403
@@ -1023,7 +1087,6 @@ def get_status():
     })
 
 
-
 @app.route("/api/backtest-status")
 def get_backtest_status():
     """Get the status of the latest backtest run."""
@@ -1038,6 +1101,7 @@ def get_backtest_status():
         return jsonify(data)
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
 
 @app.route("/api/positions")
 def get_positions():
