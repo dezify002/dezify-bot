@@ -1023,6 +1023,22 @@ def get_status():
     })
 
 
+
+@app.route("/api/backtest-status")
+def get_backtest_status():
+    """Get the status of the latest backtest run."""
+    try:
+        result_file = DATA_DIR / "backtest_result.json"
+        if not result_file.exists():
+            return jsonify({"status": "running", "message": "Backtest in progress or not started"})
+
+        with open(result_file) as f:
+            data = json.load(f)
+
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 @app.route("/api/positions")
 def get_positions():
     if _is_demo_mode():

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 # Only import things that we know work (from the bot modules import)
 # We avoid importing config.settings at module level
-from strategies.trend_pullback import TrendPullbackStrategy
+from strategies.trend_pullback_v3 import TrendPullbackStrategy
 from core.market_data import MarketData
 from core.bitget_client import BitgetClient
 from data.database import Database
