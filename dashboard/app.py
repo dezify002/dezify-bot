@@ -1,7 +1,10 @@
-"""
+
+# Build version that captures stderr inline in the start response
+# Uses subprocess.run with capture_output for immediate error feedback
+
+app_code = r'''"""
 Trade With Dezify - Flask Dashboard
-FIXED: Remove open-positions fallback from _is_bot_running() 
-This was causing the start route to never reach subprocess.Popen
+FIXED: Capture stderr inline in start response, explicit PYTHONPATH
 """
 
 import os
@@ -48,15 +51,15 @@ except Exception as e:
 
 
 # =============================================================================
-# SINGLE SOURCE OF TRUTH: PID FILE ONLY (no open positions fallback)
+# SINGLE SOURCE OF TRUTH: PID FILE ONLY
 # =============================================================================
 PID_FILE = Path("data/bot.pid")
 STDERR_LOG = Path("data/bot_stderr.log")
 STDOUT_LOG = Path("data/bot_stdout.log")
+BASE_DIR = Path(__file__).parent.parent.absolute()
 
 
 def _read_pid_file() -> Optional[int]:
-    """Read PID from file."""
     try:
         if PID_FILE.exists():
             with open(PID_FILE, "r") as f:
@@ -68,7 +71,6 @@ def _read_pid_file() -> Optional[int]:
 
 
 def _write_pid_file(pid: int, mode: str = "paper"):
-    """Write PID and metadata to file."""
     try:
         PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(PID_FILE, "w") as f:
@@ -82,7 +84,6 @@ def _write_pid_file(pid: int, mode: str = "paper"):
 
 
 def _delete_pid_file():
-    """Remove PID file."""
     try:
         if PID_FILE.exists():
             PID_FILE.unlink()
@@ -91,7 +92,6 @@ def _delete_pid_file():
 
 
 def _is_pid_alive(pid: Optional[int]) -> bool:
-    """Check if a process with this PID actually exists."""
     if pid is None:
         return False
     try:
@@ -102,22 +102,16 @@ def _is_pid_alive(pid: Optional[int]) -> bool:
 
 
 def _is_bot_running() -> bool:
-    """
-    SINGLE SOURCE OF TRUTH: Only a live PID means the bot is running.
-    NO open positions fallback — that was causing the start route to short-circuit.
-    """
+    """ONLY a live PID means the bot is running."""
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         return True
-
-    # Clean up stale PID file
     if pid:
         _delete_pid_file()
     return False
 
 
 def _get_bot_info() -> Dict:
-    """Get bot info from PID file."""
     try:
         if PID_FILE.exists():
             with open(PID_FILE) as f:
@@ -128,7 +122,6 @@ def _get_bot_info() -> Dict:
 
 
 def _list_data_files() -> List[str]:
-    """List all files in data/ directory for debugging."""
     try:
         data_dir = Path("data")
         if data_dir.exists():
@@ -139,21 +132,17 @@ def _list_data_files() -> List[str]:
 
 
 def _check_strategy_file() -> Dict[str, Any]:
-    """Check if strategy files exist and are readable."""
-    base_dir = Path(__file__).parent.parent
-    v3_file = base_dir / "strategies" / "trend_pullback_v3.py"
-    v2_file = base_dir / "strategies" / "trend_pullback.py"
-
-    result = {
+    v3_file = BASE_DIR / "strategies" / "trend_pullback_v3.py"
+    v2_file = BASE_DIR / "strategies" / "trend_pullback.py"
+    return {
         "v3_exists": v3_file.exists(),
         "v3_size": v3_file.stat().st_size if v3_file.exists() else 0,
         "v2_exists": v2_file.exists(),
         "v2_size": v2_file.stat().st_size if v2_file.exists() else 0,
-        "base_dir": str(base_dir),
+        "base_dir": str(BASE_DIR),
         "cwd": os.getcwd(),
         "data_files": _list_data_files(),
     }
-    return result
 
 
 # =============================================================================
@@ -305,7 +294,7 @@ def _is_demo_mode() -> bool:
 
 
 # =============================================================================
-# CACHES (per-worker, refreshed from DB)
+# CACHES
 # =============================================================================
 _positions_cache = []
 _trades_cache = []
@@ -318,7 +307,6 @@ _stats_cache = {
     "avg_r": 0.0,
     "total_risk": 0.0,
 }
-_scan_log = []
 _mode = "paper"
 
 
@@ -402,7 +390,7 @@ def set_mode():
 def start_bot():
     global _mode
 
-    # === SINGLE SOURCE OF TRUTH: PID + LIVE PROCESS ONLY ===
+    # === GUARD: Check if already running ===
     if _is_bot_running():
         info = _get_bot_info()
         return jsonify({
@@ -427,9 +415,8 @@ def start_bot():
         if not BOT_AVAILABLE:
             return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
-        # === START BOT AS SEPARATE PROCESS ===
+        # === START BOT ===
         try:
-            # Check strategy file exists
             strategy_check = _check_strategy_file()
             if not strategy_check["v3_exists"]:
                 return jsonify({
@@ -438,27 +425,22 @@ def start_bot():
                     "strategy_check": strategy_check,
                 }), 500
 
-            # Create bot script
-            bot_script = Path("data/run_bot.py")
+            # Create bot script with ABSOLUTE paths and explicit PYTHONPATH
+            bot_script = BASE_DIR / "data" / "run_bot.py"
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
-            abs_base = Path(__file__).parent.parent.absolute()
-
-            script_content = rf"""
+            script_content = rf"""#!/usr/bin/env python3
 import sys
 import os
-import time
-import traceback
-from pathlib import Path
-from datetime import datetime, timezone
 
-# CRITICAL: Print BEFORE any imports to verify script is even running
-print("[BOT] SCRIPT STARTED - Python is executing this file", flush=True)
-print(f"[BOT] sys.executable: {{sys.executable}}", flush=True)
-print(f"[BOT] sys.path: {{sys.path[:3]}}", flush=True)
+# CRITICAL: Set PYTHONPATH before any imports
+os.environ["PYTHONPATH"] = r"{BASE_DIR}"
+sys.path.insert(0, r"{BASE_DIR}")
 
-base_dir = Path(r"{abs_base}")
-sys.path.insert(0, str(base_dir))
+print("[BOT] SCRIPT STARTED", flush=True)
+print(f"[BOT] Python: {{sys.executable}}", flush=True)
+print(f"[BOT] PYTHONPATH: {{os.environ.get('PYTHONPATH', 'NOT SET')}}", flush=True)
+print(f"[BOT] sys.path[0]: {{sys.path[0]}}", flush=True)
 
 try:
     print("[BOT] Importing TrendPullbackStrategy...", flush=True)
@@ -466,6 +448,7 @@ try:
     print("[BOT] ✅ Strategy imported", flush=True)
 except Exception as e:
     print(f"[BOT] ❌ Import failed: {{e}}", flush=True)
+    import traceback
     traceback.print_exc()
     sys.exit(1)
 
@@ -475,6 +458,7 @@ try:
     print("[BOT] ✅ Strategy created", flush=True)
 except Exception as e:
     print(f"[BOT] ❌ Create failed: {{e}}", flush=True)
+    import traceback
     traceback.print_exc()
     sys.exit(1)
 
@@ -484,10 +468,12 @@ try:
     print(f"[BOT] ✅ Universe: {{len(strategy.universe)}} symbols", flush=True)
 except Exception as e:
     print(f"[BOT] ❌ Universe failed: {{e}}", flush=True)
+    import traceback
     traceback.print_exc()
     sys.exit(1)
 
 print("[BOT] Starting main loop...", flush=True)
+import time
 cycle = 0
 while True:
     cycle += 1
@@ -497,6 +483,7 @@ while True:
         print(f"[BOT] ✅ Cycle {{cycle}}: {{result}}", flush=True)
     except Exception as e:
         print(f"[BOT] ❌ Cycle {{cycle}} error: {{e}}", flush=True)
+        import traceback
         traceback.print_exc()
     time.sleep(60)
 """
@@ -504,43 +491,54 @@ while True:
             with open(bot_script, "w") as f:
                 f.write(script_content)
 
-            # Clear old stderr/stdout logs
-            STDERR_LOG.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                STDERR_LOG.write_text("")
-                STDOUT_LOG.write_text("")
-            except Exception:
-                pass
+            # === TEST RUN: Use subprocess.run to capture startup errors ===
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(BASE_DIR)
+            env["PYTHONUNBUFFERED"] = "1"
 
-            # Open file handles for subprocess
+            # First, do a test run with timeout to catch immediate errors
+            test_result = subprocess.run(
+                [sys.executable, "-u", str(bot_script)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=str(BASE_DIR),
+                env=env,
+            )
+
+            if test_result.returncode != 0:
+                # Bot died during startup - return error with full stderr
+                return jsonify({
+                    "success": False,
+                    "error": f"Bot process died during startup (exit code {test_result.returncode})",
+                    "stderr": test_result.stderr[-3000:] if test_result.stderr else "",
+                    "stdout": test_result.stdout[-1000:] if test_result.stdout else "",
+                    "strategy_check": strategy_check,
+                    "sys_executable": sys.executable,
+                    "pythonpath": str(BASE_DIR),
+                }), 500
+
+            # Test run succeeded - now start for real with file logging
             stderr_f = open(STDERR_LOG, "w")
             stdout_f = open(STDOUT_LOG, "w")
-
-            # Start the bot process with -u (unbuffered) and explicit file handles
-            env = os.environ.copy()
-            env["BOT_MODE"] = "paper"
-            env["PYTHONUNBUFFERED"] = "1"
 
             process = subprocess.Popen(
                 [sys.executable, "-u", str(bot_script)],
                 stdout=stdout_f,
                 stderr=stderr_f,
-                cwd=str(Path(__file__).parent.parent),
+                cwd=str(BASE_DIR),
                 env=env,
             )
 
-            # Write PID file
             _write_pid_file(process.pid, "paper")
 
-            # CRITICAL: Wait and check if process died immediately
-            time.sleep(3)
-            exit_code = process.poll()
-
-            if exit_code is not None:
-                # Process died immediately - close files and read error
+            # Verify it's still alive after 2 seconds
+            time.sleep(2)
+            if process.poll() is not None:
                 stderr_f.close()
                 stdout_f.close()
-
+                _delete_pid_file()
+                
                 stderr_text = ""
                 stdout_text = ""
                 try:
@@ -550,19 +548,14 @@ while True:
                         stdout_text = STDOUT_LOG.read_text()
                 except Exception:
                     pass
-
-                _delete_pid_file()
-
+                
                 return jsonify({
                     "success": False,
-                    "error": f"Bot process died immediately (exit code {exit_code})",
-                    "stderr": stderr_text[-2000:] if stderr_text else "",
-                    "stdout": stdout_text[-2000:] if stdout_text else "",
-                    "strategy_check": strategy_check,
-                    "sys_executable": sys.executable,
+                    "error": f"Bot process died after test run (exit code {process.returncode})",
+                    "stderr": stderr_text[-2000:],
+                    "stdout": stdout_text[-1000:],
                 }), 500
 
-            # Process is still running - close file handles (subprocess keeps them)
             stderr_f.close()
             stdout_f.close()
 
@@ -571,10 +564,14 @@ while True:
                 "message": "Paper trading started",
                 "mode": "paper",
                 "pid": process.pid,
-                "strategy_check": strategy_check,
-                "sys_executable": sys.executable,
+                "test_stdout": test_result.stdout[-500:] if test_result.stdout else "",
             })
 
+        except subprocess.TimeoutExpired:
+            return jsonify({
+                "success": False,
+                "error": "Bot startup timed out (hanging on import?)",
+            }), 500
         except Exception as e:
             _delete_pid_file()
             return jsonify({"success": False, "error": f"Failed to start bot: {str(e)}"}), 500
@@ -582,7 +579,6 @@ while True:
 
 @app.route("/api/stop", methods=["POST"])
 def stop_bot():
-    """Stop the bot process."""
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         try:
@@ -598,7 +594,6 @@ def stop_bot():
 
 @app.route("/api/force-restart", methods=["POST"])
 def force_restart():
-    """Force kill bot and reset."""
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         try:
@@ -619,8 +614,6 @@ def force_restart():
 
 @app.route("/api/status")
 def get_status():
-    """Get status - consistent across ALL devices."""
-
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
@@ -637,18 +630,16 @@ def get_status():
 
     _update_from_database()
 
-    # Read stderr/stdout logs if running
     stderr_text = ""
     stdout_text = ""
     try:
         if STDERR_LOG.exists():
             stderr_text = STDERR_LOG.read_text()[-2000:]
         if STDOUT_LOG.exists():
-            stdout_text = STDOUT_LOG.read_text()[-2000:]
+            stdout_text = STDOUT_LOG.read_text()[-1000:]
     except Exception:
         pass
 
-    # Calculate live unrealized PnL for all open positions
     live_unrealized_pnl = 0
     open_positions_count = 0
     try:
@@ -852,7 +843,6 @@ def get_balance():
 
 @app.route("/api/bot-logs")
 def get_bot_logs():
-    """Get recent bot stderr/stdout logs."""
     stderr_text = ""
     stdout_text = ""
     try:
@@ -862,9 +852,9 @@ def get_bot_logs():
             stdout_text = STDOUT_LOG.read_text()[-3000:]
     except Exception:
         pass
-
+    
     strategy_check = _check_strategy_file()
-
+    
     return jsonify({
         "stderr": stderr_text,
         "stdout": stdout_text,
@@ -875,10 +865,9 @@ def get_bot_logs():
 
 @app.route("/api/debug")
 def debug_info():
-    """Debug endpoint - shows file system state."""
     return jsonify({
         "cwd": os.getcwd(),
-        "base_dir": str(Path(__file__).parent.parent),
+        "base_dir": str(BASE_DIR),
         "data_dir_exists": Path("data").exists(),
         "data_files": _list_data_files(),
         "strategy_check": _check_strategy_file(),
@@ -908,7 +897,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Fixed Dashboard (no open-positions fallback)")
+    print("TRADE WITH DEZIFY - Fixed Dashboard")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
@@ -918,3 +907,14 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+'''
+
+# Save to output
+from pathlib import Path
+output_path = "/mnt/agents/output/dashboard_app_inline.py"
+Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+with open(output_path, "w") as f:
+    f.write(app_code)
+
+print(f"Saved inline-error dashboard to: {output_path}")
+print(f"File size: {len(app_code)} chars")
