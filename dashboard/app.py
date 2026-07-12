@@ -1,6 +1,6 @@
 """
 Trade With Dezify - Flask Dashboard
-FIXED: Capture stderr inline in start response, explicit PYTHONPATH
+FIXED: Remove refresh_universe from startup (was hanging on Bitget API call)
 """
 
 import os
@@ -386,7 +386,6 @@ def set_mode():
 def start_bot():
     global _mode
 
-    # === GUARD: Check if already running ===
     if _is_bot_running():
         info = _get_bot_info()
         return jsonify({
@@ -411,7 +410,6 @@ def start_bot():
         if not BOT_AVAILABLE:
             return jsonify({"success": False, "error": "Bot modules not available."}), 500
 
-        # === START BOT ===
         try:
             strategy_check = _check_strategy_file()
             if not strategy_check["v3_exists"]:
@@ -421,7 +419,7 @@ def start_bot():
                     "strategy_check": strategy_check,
                 }), 500
 
-            # Create bot script with ABSOLUTE paths and explicit PYTHONPATH
+            # Create bot script — NO refresh_universe in startup!
             bot_script = BASE_DIR / "data" / "run_bot.py"
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
@@ -429,14 +427,11 @@ def start_bot():
 import sys
 import os
 
-# CRITICAL: Set PYTHONPATH before any imports
 os.environ["PYTHONPATH"] = r"{BASE_DIR}"
 sys.path.insert(0, r"{BASE_DIR}")
 
 print("[BOT] SCRIPT STARTED", flush=True)
 print(f"[BOT] Python: {{sys.executable}}", flush=True)
-print(f"[BOT] PYTHONPATH: {{os.environ.get('PYTHONPATH', 'NOT SET')}}", flush=True)
-print(f"[BOT] sys.path[0]: {{sys.path[0]}}", flush=True)
 
 try:
     print("[BOT] Importing TrendPullbackStrategy...", flush=True)
@@ -458,15 +453,8 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-try:
-    print("[BOT] Refreshing universe...", flush=True)
-    strategy.refresh_universe()
-    print(f"[BOT] ✅ Universe: {{len(strategy.universe)}} symbols", flush=True)
-except Exception as e:
-    print(f"[BOT] ❌ Universe failed: {{e}}", flush=True)
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
+# NOTE: refresh_universe() is NOT called here — it will be called in run_cycle()
+# This avoids hanging on Bitget API during startup
 
 print("[BOT] Starting main loop...", flush=True)
 import time
@@ -487,34 +475,19 @@ while True:
             with open(bot_script, "w") as f:
                 f.write(script_content)
 
-            # === TEST RUN: Use subprocess.run to capture startup errors ===
+            # Clear logs
+            STDERR_LOG.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                STDERR_LOG.write_text("")
+                STDOUT_LOG.write_text("")
+            except Exception:
+                pass
+
+            # Start bot with file logging
             env = os.environ.copy()
             env["PYTHONPATH"] = str(BASE_DIR)
             env["PYTHONUNBUFFERED"] = "1"
 
-            # First, do a test run with timeout to catch immediate errors
-            test_result = subprocess.run(
-                [sys.executable, "-u", str(bot_script)],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                cwd=str(BASE_DIR),
-                env=env,
-            )
-
-            if test_result.returncode != 0:
-                # Bot died during startup - return error with full stderr
-                return jsonify({
-                    "success": False,
-                    "error": f"Bot process died during startup (exit code {test_result.returncode})",
-                    "stderr": test_result.stderr[-3000:] if test_result.stderr else "",
-                    "stdout": test_result.stdout[-1000:] if test_result.stdout else "",
-                    "strategy_check": strategy_check,
-                    "sys_executable": sys.executable,
-                    "pythonpath": str(BASE_DIR),
-                }), 500
-
-            # Test run succeeded - now start for real with file logging
             stderr_f = open(STDERR_LOG, "w")
             stdout_f = open(STDOUT_LOG, "w")
 
@@ -528,8 +501,8 @@ while True:
 
             _write_pid_file(process.pid, "paper")
 
-            # Verify it's still alive after 2 seconds
-            time.sleep(2)
+            # Check if alive after 3 seconds
+            time.sleep(3)
             if process.poll() is not None:
                 stderr_f.close()
                 stdout_f.close()
@@ -547,7 +520,7 @@ while True:
 
                 return jsonify({
                     "success": False,
-                    "error": f"Bot process died after test run (exit code {process.returncode})",
+                    "error": f"Bot died immediately (exit code {process.returncode})",
                     "stderr": stderr_text[-2000:],
                     "stdout": stdout_text[-1000:],
                 }), 500
@@ -560,14 +533,8 @@ while True:
                 "message": "Paper trading started",
                 "mode": "paper",
                 "pid": process.pid,
-                "test_stdout": test_result.stdout[-500:] if test_result.stdout else "",
             })
 
-        except subprocess.TimeoutExpired:
-            return jsonify({
-                "success": False,
-                "error": "Bot startup timed out (hanging on import?)",
-            }), 500
         except Exception as e:
             _delete_pid_file()
             return jsonify({"success": False, "error": f"Failed to start bot: {str(e)}"}), 500
