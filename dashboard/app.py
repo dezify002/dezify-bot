@@ -571,21 +571,33 @@ def get_status():
 
     # Calculate live unrealized PnL for all open positions
     live_unrealized_pnl = 0
+    open_positions_count = 0
     try:
         db = Database()
         open_trades = db.get_open_trades()
+        open_positions_count = len(open_trades)
+
+        # Fetch all tickers once
         from core.bitget_client import BitgetClient
         client = BitgetClient()
+        all_tickers = client.get_tickers(product_type="USDT-FUTURES")
+        price_map = {}
+        if all_tickers:
+            for ticker in all_tickers:
+                sym = ticker.get("symbol", "")
+                last = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
+                if sym and last:
+                    try:
+                        price_map[sym] = float(last)
+                    except:
+                        pass
+
         for t in open_trades:
-            try:
-                ticker = client.get_ticker(t.symbol)
-                current_price = float(ticker.get("last", ticker.get("close", t.entry_price)))
-                if t.direction == "long":
-                    live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
-                else:
-                    live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
-            except Exception:
-                pass
+            current_price = price_map.get(t.symbol, t.entry_price)
+            if t.direction == "long" and t.position_size:
+                live_unrealized_pnl += (current_price - t.entry_price) * t.position_size
+            elif t.direction == "short" and t.position_size:
+                live_unrealized_pnl += (t.entry_price - current_price) * t.position_size
     except Exception:
         pass
 
@@ -596,7 +608,7 @@ def get_status():
         "last_cycle_time": None,
         "last_error": None,
         "equity": round(_stats_cache["equity"] + live_unrealized_pnl, 2),
-        "open_positions": len(open_trades) if 'open_trades' in dir() else _stats_cache["open_positions"],
+        "open_positions": open_positions_count,
         "today_pnl": _stats_cache["today_pnl"],
         "today_trades": _stats_cache["today_trades"],
         "win_rate": _stats_cache["win_rate"],
@@ -618,44 +630,57 @@ def get_positions():
         mode = request.args.get("mode", _mode)
         return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
 
-    # === FIX: Query live prices directly, don't depend on bot thread ===
+    # === LIVE PRICE QUERY - works even when bot thread is dead ===
     try:
         db = Database()
         open_trades = db.get_open_trades()
 
-        # Get live prices for all open positions
+        # Fetch ALL tickers at once (more efficient than per-symbol)
         live_prices = {}
+        price_source = "entry_fallback"
+
         try:
             from core.bitget_client import BitgetClient
             client = BitgetClient()
-            for t in open_trades:
-                if t.symbol not in live_prices:
-                    # Try to get latest price
-                    try:
-                        ticker = client.get_ticker(t.symbol)
-                        if ticker and "last" in ticker:
-                            live_prices[t.symbol] = float(ticker["last"])
-                        elif ticker and "close" in ticker:
-                            live_prices[t.symbol] = float(ticker["close"])
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+            # get_tickers returns list of all tickers
+            all_tickers = client.get_tickers(product_type="USDT-FUTURES")
+            if all_tickers:
+                for ticker in all_tickers:
+                    symbol = ticker.get("symbol", "")
+                    # Bitget returns "last" or "close" for current price
+                    last_price = ticker.get("last") or ticker.get("close") or ticker.get("lastPr")
+                    if symbol and last_price:
+                        try:
+                            live_prices[symbol] = float(last_price)
+                        except (ValueError, TypeError):
+                            pass
+                price_source = "live_api"
+        except Exception as e:
+            print(f"Price fetch error: {e}")
 
         positions = []
         for t in open_trades:
             current_price = live_prices.get(t.symbol, t.entry_price)
 
-            # Calculate PnL
-            pnl_pct = 0
-            if t.direction == "long" and t.entry_price > 0:
-                pnl_pct = (current_price - t.entry_price) / t.entry_price * 100
-            elif t.direction == "short" and t.entry_price > 0:
-                pnl_pct = (t.entry_price - current_price) / t.entry_price * 100
+            # Calculate unrealized PnL percentage
+            pnl_pct = 0.0
+            if t.entry_price and t.entry_price > 0:
+                if t.direction == "long":
+                    pnl_pct = ((current_price - t.entry_price) / t.entry_price) * 100
+                else:  # short
+                    pnl_pct = ((t.entry_price - current_price) / t.entry_price) * 100
 
-            # Calculate R-multiple
-            r_multiple = 0
-            stop_distance = abs(t.entry_price - t.stop_loss_price)
+            # Calculate unrealized PnL in USD
+            unrealized_pnl = 0.0
+            if t.position_size:
+                if t.direction == "long":
+                    unrealized_pnl = (current_price - t.entry_price) * t.position_size
+                else:
+                    unrealized_pnl = (t.entry_price - current_price) * t.position_size
+
+            # Calculate R-multiple based on current price vs stop loss
+            r_multiple = 0.0
+            stop_distance = abs(t.entry_price - t.stop_loss_price) if t.stop_loss_price else 0
             if stop_distance > 0:
                 if t.direction == "long":
                     r_multiple = (current_price - t.entry_price) / stop_distance
@@ -666,17 +691,19 @@ def get_positions():
                 "id": t.trade_id,
                 "symbol": t.symbol,
                 "direction": t.direction,
-                "entry_price": t.entry_price,
-                "current_price": current_price,
+                "entry_price": round(t.entry_price, 4),
+                "current_price": round(current_price, 4),
                 "stop_loss": t.stop_loss_price,
                 "take_profit": t.take_profit_price,
-                "position_size": t.position_size,
-                "position_value": t.position_value_usd,
-                "leverage": t.leverage,
-                "risk_pct": t.risk_pct,
+                "position_size": round(t.position_size, 4) if t.position_size else 0,
+                "position_value": round(t.position_value_usd, 2) if t.position_value_usd else 0,
+                "leverage": t.leverage or 1,
+                "risk_pct": t.risk_pct or 0,
                 "pnl_pct": round(pnl_pct, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2),
                 "entry_time": t.entry_time.isoformat() if t.entry_time else None,
                 "r_multiple": round(r_multiple, 2),
+                "price_fresh": t.symbol in live_prices,
             })
 
         return jsonify({
@@ -684,9 +711,12 @@ def get_positions():
             "count": len(positions),
             "mode": _mode,
             "demo": False,
-            "price_source": "live_api" if live_prices else "entry_fallback",
+            "price_source": price_source,
+            "prices_fetched": len(live_prices),
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"positions": [], "count": 0, "mode": _mode, "demo": False, "error": str(e)})
 
 
