@@ -1059,7 +1059,7 @@ def strategy_evaluate():
     timeframe = data.get("timeframe", "1H")
 
     try:
-        from strategies.trend_pullback_v3 import TrendPullbackStrategy
+        from strategies.trend_pullback_v3_instrumented import TrendPullbackStrategy
         strategy = TrendPullbackStrategy()
 
         # Run evaluation
@@ -1256,7 +1256,7 @@ print(f"[BOT] Python: {{sys.executable}}", flush=True)
 
 try:
     print("[BOT] Importing TrendPullbackStrategy...", flush=True)
-    from strategies.trend_pullback_v3 import TrendPullbackStrategy
+    from strategies.trend_pullback_v3_instrumented import TrendPullbackStrategy
     print("[BOT] ✅ Strategy imported", flush=True)
 except Exception as e:
     print(f"[BOT] ❌ Import failed: {{e}}", flush=True)
