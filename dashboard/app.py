@@ -58,7 +58,10 @@ try:
     BACKTEST_AVAILABLE = True
     print("✅ Backtest engine loaded")
 except Exception as e:
+    import traceback
+    _backtest_import_error = f"{e}\n{traceback.format_exc()}"
     print(f"⚠️ Backtest engine not available: {e}")
+    print(f"⚠️ Backtest traceback: {_backtest_import_error}")
     BACKTEST_AVAILABLE = False
     BacktestEngine = None  # type: ignore
 
@@ -783,7 +786,8 @@ def start_bot():
 
     if _mode == "backtest":
         if not BACKTEST_AVAILABLE:
-            return jsonify({"success": False, "error": "Backtest engine not available."}), 500
+            error_msg = getattr(sys.modules[__name__], '_backtest_import_error', 'Unknown import error')
+            return jsonify({"success": False, "error": f"Backtest engine failed to load: {error_msg}"}), 500
 
         try:
             start_date = data.get("start_date", "2024-01-01")
@@ -1275,6 +1279,8 @@ def get_bot_logs():
 
 @app.route("/api/debug")
 def debug_info():
+    backtest_error = getattr(sys.modules[__name__], '_backtest_import_error', None)
+    engine_file = BASE_DIR / "backtest" / "engine.py"
     return jsonify({
         "cwd": os.getcwd(),
         "base_dir": str(BASE_DIR),
@@ -1285,6 +1291,9 @@ def debug_info():
         "pid": _read_pid_file(),
         "bot_available": BOT_AVAILABLE,
         "backtest_available": BACKTEST_AVAILABLE,
+        "backtest_import_error": backtest_error,
+        "backtest_engine_exists": engine_file.exists(),
+        "backtest_engine_size": engine_file.stat().st_size if engine_file.exists() else 0,
         "python_path": sys.path[:5],
         "sys_executable": sys.executable,
     })

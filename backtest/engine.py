@@ -5,7 +5,6 @@ Bar-by-bar historical simulation
 
 import uuid
 import json
-import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
@@ -90,7 +89,6 @@ class HistoricalMarketData:
                         self.current_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     else:
                         self.current_time = datetime.fromtimestamp(ts / 1000, tz=__import__('datetime').timezone.utc)
-                # Cache latest prices for all symbols at this bar
                 self._price_cache[symbol] = float(bars[index].get("close", bars[index].get("c", 0)))
                 break
 
@@ -109,9 +107,7 @@ class HistoricalMarketData:
         candles = self.get_candles(symbol, timeframe="1h", limit=24)
         return sum(float(c.get("volume", c.get("v", 0))) for c in candles)
 
-    # Methods needed by v3 strategy
     def get_adx(self, candles) -> float:
-        """Calculate ADX from candles."""
         if not candles or len(candles) < 28:
             return 0.0
         try:
@@ -123,7 +119,6 @@ class HistoricalMarketData:
             return 0.0
 
     def get_atr(self, candles) -> float:
-        """Calculate ATR from candles."""
         if not candles or len(candles) < 15:
             return 0.0
         try:
@@ -135,7 +130,6 @@ class HistoricalMarketData:
             return 0.0
 
     def get_ema(self, candles, period: int) -> float:
-        """Calculate EMA and return last value."""
         if not candles or len(candles) < period:
             return 0.0
         try:
@@ -147,36 +141,28 @@ class HistoricalMarketData:
 
     @staticmethod
     def _calculate_adx(highs, lows, closes, period=14):
-        """Simple ADX calculation."""
         if len(highs) < period + 1:
             return 0.0
-
         tr_list = []
         plus_dm_list = []
         minus_dm_list = []
-
         for i in range(1, len(closes)):
             tr = max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1]))
             tr_list.append(tr)
-
             plus_dm = highs[i] - highs[i-1] if highs[i] - highs[i-1] > lows[i-1] - lows[i] else 0
             minus_dm = lows[i-1] - lows[i] if lows[i-1] - lows[i] > highs[i] - highs[i-1] else 0
             plus_dm_list.append(plus_dm)
             minus_dm_list.append(minus_dm)
-
         if len(tr_list) < period:
             return 0.0
-
         atr = sum(tr_list[-period:]) / period
         plus_di = 100 * sum(plus_dm_list[-period:]) / (period * atr) if atr > 0 else 0
         minus_di = 100 * sum(minus_dm_list[-period:]) / (period * atr) if atr > 0 else 0
         dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di) if (plus_di + minus_di) > 0 else 0
-
         return dx
 
     @staticmethod
     def _calculate_atr(highs, lows, closes, period=14):
-        """Simple ATR calculation."""
         if len(highs) < 2:
             return 0.0
         tr_list = []
@@ -189,7 +175,6 @@ class HistoricalMarketData:
 
     @staticmethod
     def _calculate_ema(data, period):
-        """Calculate EMA series."""
         if len(data) < period:
             return []
         multiplier = 2 / (period + 1)
@@ -207,16 +192,13 @@ class BacktestEngine:
         self.end_date = datetime.strptime(end_date, "%Y-%m-%d")
         self.initial_equity = initial_equity
         self.equity = initial_equity
-
         self.trades: List[BacktestTrade] = []
         self.open_positions: Dict[str, BacktestTrade] = {}
         self.equity_curve: List[Tuple[datetime, float]] = []
-
         self.client = BitgetClient()
         logger.info(f"BacktestEngine: {start_date} to {end_date}, equity=${initial_equity}")
 
     def _get_settings(self):
-        """Lazy import settings."""
         try:
             from config.settings import STRATEGY, RISK
             return STRATEGY, RISK
@@ -233,7 +215,6 @@ class BacktestEngine:
             return DefaultStrategy(), DefaultRisk()
 
     def fetch_historical_data(self, symbols: List[str], timeframe: str = "1h") -> Dict[str, List[dict]]:
-        """Fetch historical candle data from Bitget."""
         candles = {}
         for symbol in symbols:
             try:
@@ -244,7 +225,6 @@ class BacktestEngine:
                     end_time=int(self.end_date.timestamp() * 1000),
                 )
                 if bars and len(bars) > 50:
-                    # Normalize bars to dict format
                     normalized = []
                     for bar in bars:
                         if isinstance(bar, list) and len(bar) >= 6:
@@ -267,14 +247,11 @@ class BacktestEngine:
         return candles
 
     def run(self) -> BacktestResult:
-        """Run the full backtest."""
         STRATEGY, RISK = self._get_settings()
-
         logger.info("=" * 60)
         logger.info("STARTING BACKTEST")
         logger.info("=" * 60)
 
-        # Get universe
         logger.info("Fetching universe...")
         try:
             tickers = self.client.get_tickers(product_type="USDT-FUTURES")
@@ -285,13 +262,12 @@ class BacktestEngine:
                     vol = float(t.get("usdtVolume", 0))
                     if vol >= STRATEGY.min_volume_24h:
                         symbols.append(symbol)
-            symbols = sorted(symbols)[:15]  # Limit to 15 for speed
+            symbols = sorted(symbols)[:15]
             logger.info(f"Universe: {len(symbols)} symbols")
         except Exception as e:
             logger.error(f"Failed to fetch universe: {e}")
             symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
 
-        # Fetch historical data
         logger.info("Fetching historical candles...")
         historical_candles = self.fetch_historical_data(symbols, timeframe="1h")
 
@@ -302,18 +278,12 @@ class BacktestEngine:
         min_bars = min(len(bars) for bars in historical_candles.values())
         logger.info(f"Simulation: {min_bars} bars")
 
-        # Create historical market data wrapper
         hist_md = HistoricalMarketData(historical_candles)
-
-        # Create strategy and inject historical market data
         strategy = TrendPullbackStrategy()
         strategy.market_data = hist_md
         strategy.client = self.client
-
-        # Set universe
         strategy.universe = symbols
 
-        # Bar-by-bar simulation
         for bar_idx in range(50, min_bars):
             hist_md.set_index(bar_idx)
             current_time = hist_md.current_time
@@ -321,15 +291,11 @@ class BacktestEngine:
                 continue
 
             self.equity_curve.append((current_time, self.equity))
-
-            # Check exits for open positions
             self._check_exits(hist_md, current_time)
 
-            # Scan for new entries every 4 bars (hourly -> every 4 hours)
             if bar_idx % 4 == 0:
                 self._scan_entries(strategy, hist_md, symbols, current_time, RISK)
 
-        # Close remaining positions at last price
         for symbol, trade in list(self.open_positions.items()):
             last_price = hist_md.get_latest_price(symbol)
             if last_price:
@@ -342,7 +308,6 @@ class BacktestEngine:
         return self._build_result()
 
     def _check_exits(self, hist_md, current_time):
-        """Check if any open positions should be exited."""
         for symbol, trade in list(self.open_positions.items()):
             current_price = hist_md.get_latest_price(symbol)
             if current_price is None:
@@ -371,7 +336,6 @@ class BacktestEngine:
                     exit_price = trade.take_profit
                     exit_reason = "take_profit"
 
-            # Time exit after 48 hours
             if trade.entry_time and (current_time - trade.entry_time) > timedelta(hours=48):
                 should_exit = True
                 exit_reason = "time_exit"
@@ -380,7 +344,6 @@ class BacktestEngine:
                 self._close_trade(trade, exit_price, current_time, exit_reason)
 
     def _scan_entries(self, strategy, hist_md, symbols, current_time, RISK):
-        """Scan for new entry signals."""
         for symbol in symbols:
             if symbol in self.open_positions:
                 continue
@@ -390,7 +353,6 @@ class BacktestEngine:
             try:
                 signal = strategy.evaluate_symbol(symbol, timeframe="1H")
                 if signal:
-                    # Apply slippage
                     fill_price = signal.entry_price
                     slippage = fill_price * 0.0005
                     if signal.direction == "long":
@@ -398,7 +360,6 @@ class BacktestEngine:
                     else:
                         fill_price -= slippage
 
-                    # Check margin
                     margin_needed = signal.position_value / (signal.leverage or 1)
                     if margin_needed > self.equity * 0.95:
                         continue
@@ -429,7 +390,6 @@ class BacktestEngine:
                 logger.debug(f"Error evaluating {symbol}: {e}")
 
     def _close_trade(self, trade, exit_price, exit_time, reason):
-        """Close a trade and calculate P&L."""
         trade.exit_price = exit_price
         trade.exit_time = exit_time
         trade.exit_reason = reason
@@ -441,7 +401,6 @@ class BacktestEngine:
             trade.realized_pnl = (trade.entry_price - exit_price) * trade.position_size
             trade.realized_pnl_pct = (trade.entry_price - exit_price) / trade.entry_price
 
-        # Calculate R-multiple
         stop_distance = abs(trade.entry_price - trade.stop_loss)
         if stop_distance > 0:
             if trade.direction == "long":
@@ -460,7 +419,6 @@ class BacktestEngine:
         )
 
     def _build_result(self) -> BacktestResult:
-        """Build final backtest result."""
         closed_trades = [t for t in self.trades if t.is_closed()]
         winners = [t for t in closed_trades if t.is_winner()]
         losers = [t for t in closed_trades if not t.is_winner()]
