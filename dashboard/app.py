@@ -491,6 +491,115 @@ def _generate_live_scan_positions(mode: str) -> List[Dict]:
     return positions
 
 
+
+
+# =============================================================================
+# SCAN LOGGING — Track which tokens are evaluated and why
+# =============================================================================
+SCAN_LOG_FILE = DATA_DIR / "scan_log.json"
+SIGNAL_LOG_FILE = DATA_DIR / "signal_log.json"
+
+
+def _log_scan_result(symbol: str, layer: str, passed: bool, reason: str, 
+                     metadata: Dict[str, Any] = None):
+    """Log a single symbol's evaluation result."""
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol,
+        "layer": layer,           # e.g., "layer_1_regime", "layer_2_trend", etc.
+        "passed": passed,         # True/False
+        "reason": reason,         # Human-readable explanation
+        "metadata": metadata or {},
+    }
+
+    # Append to scan log
+    try:
+        logs = []
+        if SCAN_LOG_FILE.exists():
+            with open(SCAN_LOG_FILE, "r") as f:
+                logs = json.load(f)
+        # Keep last 5000 entries
+        logs.append(entry)
+        logs = logs[-5000:]
+        with open(SCAN_LOG_FILE, "w") as f:
+            json.dump(logs, f, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Failed to write scan log: {e}")
+
+
+def _log_signal_generated(signal_data: Dict[str, Any]):
+    """Log a generated trading signal."""
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        **signal_data,
+    }
+    try:
+        logs = []
+        if SIGNAL_LOG_FILE.exists():
+            with open(SIGNAL_LOG_FILE, "r") as f:
+                logs = json.load(f)
+        logs.append(entry)
+        logs = logs[-1000:]
+        with open(SIGNAL_LOG_FILE, "w") as f:
+            json.dump(logs, f, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Failed to write signal log: {e}")
+
+
+def _get_scan_summary(hours: int = 1) -> Dict[str, Any]:
+    """Get summary of recent scan activity."""
+    try:
+        if not SCAN_LOG_FILE.exists():
+            return {"scanned": 0, "symbols": [], "signals": 0}
+
+        with open(SCAN_LOG_FILE, "r") as f:
+            logs = json.load(f)
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        recent = [l for l in logs if datetime.fromisoformat(l["timestamp"]) > cutoff]
+
+        # Group by symbol
+        symbols_scanned = set()
+        symbols_passed = set()
+        layer_stats = {}
+
+        for entry in recent:
+            symbols_scanned.add(entry["symbol"])
+            if entry["passed"]:
+                symbols_passed.add(entry["symbol"])
+            layer = entry["layer"]
+            if layer not in layer_stats:
+                layer_stats[layer] = {"passed": 0, "failed": 0}
+            if entry["passed"]:
+                layer_stats[layer]["passed"] += 1
+            else:
+                layer_stats[layer]["failed"] += 1
+
+        return {
+            "period_hours": hours,
+            "total_evaluations": len(recent),
+            "unique_symbols_scanned": len(symbols_scanned),
+            "unique_symbols_passed": len(symbols_passed),
+            "symbols_scanned": sorted(list(symbols_scanned)),
+            "symbols_passed": sorted(list(symbols_passed)),
+            "layer_stats": layer_stats,
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _get_signal_log(limit: int = 50) -> List[Dict]:
+    """Get recent generated signals."""
+    try:
+        if not SIGNAL_LOG_FILE.exists():
+            return []
+        with open(SIGNAL_LOG_FILE, "r") as f:
+            logs = json.load(f)
+        return logs[-limit:]
+    except Exception as e:
+        return [{"error": str(e)}]
+
 # Legacy static dict — only used if API completely fails
 DEMO_POSITIONS = {
     "paper": [],
@@ -860,6 +969,135 @@ def download_archive(archive_name):
 # EXISTING ROUTES (Start, Stop, Status, etc.)
 # =============================================================================
 
+
+
+# =============================================================================
+# SCAN & SIGNAL VISIBILITY ENDPOINTS
+# =============================================================================
+
+@app.route("/api/scan-summary")
+def get_scan_summary():
+    """Get summary of recent token scanning activity."""
+    hours = request.args.get("hours", 1, type=int)
+    return jsonify(_get_scan_summary(hours))
+
+
+@app.route("/api/scan-log")
+def get_scan_log():
+    """Get detailed scan log entries."""
+    try:
+        if not SCAN_LOG_FILE.exists():
+            return jsonify({"entries": [], "total": 0})
+        with open(SCAN_LOG_FILE, "r") as f:
+            logs = json.load(f)
+
+        # Filter by symbol if provided
+        symbol = request.args.get("symbol")
+        if symbol:
+            logs = [l for l in logs if l.get("symbol") == symbol]
+
+        # Filter by layer if provided
+        layer = request.args.get("layer")
+        if layer:
+            logs = [l for l in logs if l.get("layer") == layer]
+
+        # Limit
+        limit = request.args.get("limit", 100, type=int)
+        logs = logs[-limit:]
+
+        return jsonify({
+            "entries": logs,
+            "total": len(logs),
+            "filters": {"symbol": symbol, "layer": layer},
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/signal-log")
+def get_signal_log():
+    """Get log of generated trading signals."""
+    limit = request.args.get("limit", 50, type=int)
+    return jsonify({
+        "signals": _get_signal_log(limit),
+        "total": len(_get_signal_log(limit)),
+    })
+
+
+@app.route("/api/live-scan")
+def live_scan():
+    """
+    Perform a live scan NOW and return results.
+    This hits the Bitget API in real-time.
+    """
+    try:
+        candidates = _scan_bitget_universe(min_volume_usd=5_000_000)
+        top = _get_top_candidates(candidates, top_n=20)
+
+        return jsonify({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_scanned": len(candidates),
+            "top_candidates": top,
+            "filters_applied": {
+                "min_volume_usd": 5_000_000,
+                "excluded_stablecoins": True,
+                "excluded_leveraged": True,
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/strategy-evaluate", methods=["POST"])
+def strategy_evaluate():
+    """
+    Run a single symbol through the strategy's 8 layers and return detailed results.
+    POST body: {"symbol": "BTCUSDT", "timeframe": "1H"}
+    """
+    data = request.get_json() or {}
+    symbol = data.get("symbol", "BTCUSDT")
+    timeframe = data.get("timeframe", "1H")
+
+    try:
+        from strategies.trend_pullback_v3 import TrendPullbackStrategy
+        strategy = TrendPullbackStrategy()
+
+        # Run evaluation
+        signal = strategy.evaluate_symbol(symbol, timeframe)
+
+        if signal:
+            # Log the signal
+            _log_signal_generated({
+                "symbol": signal.symbol,
+                "direction": signal.direction,
+                "entry_price": signal.entry_price,
+                "stop_loss": signal.stop_loss,
+                "take_profit": signal.take_profit,
+                "confidence": signal.confidence,
+                "signal_id": signal.signal_id,
+            })
+
+            return jsonify({
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "signal_generated": True,
+                "direction": signal.direction,
+                "entry_price": signal.entry_price,
+                "stop_loss": signal.stop_loss,
+                "take_profit": signal.take_profit,
+                "confidence": signal.confidence,
+                "checklist": signal.checklist.to_dict() if signal.checklist else {},
+            })
+        else:
+            return jsonify({
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "signal_generated": False,
+                "reason": "Did not pass all 8 layers",
+            })
+    except Exception as e:
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
 @app.route("/api/start", methods=["POST"])
 def start_bot():
     global _mode
@@ -969,9 +1207,49 @@ def start_bot():
             script_content = rf"""#!/usr/bin/env python3
 import sys
 import os
+import json
+from datetime import datetime, timezone
 
 os.environ["PYTHONPATH"] = r"{BASE_DIR}"
 sys.path.insert(0, r"{BASE_DIR}")
+
+SCAN_LOG_FILE = os.path.join(r"{DATA_DIR}", "scan_log.json")
+SIGNAL_LOG_FILE = os.path.join(r"{DATA_DIR}", "signal_log.json")
+
+def log_scan(symbol, layer, passed, reason, metadata=None):
+    entry = {{
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "symbol": symbol,
+        "layer": layer,
+        "passed": passed,
+        "reason": reason,
+        "metadata": metadata or {{}},
+    }}
+    try:
+        logs = []
+        if os.path.exists(SCAN_LOG_FILE):
+            with open(SCAN_LOG_FILE, "r") as f:
+                logs = json.load(f)
+        logs.append(entry)
+        logs = logs[-5000:]
+        with open(SCAN_LOG_FILE, "w") as f:
+            json.dump(logs, f, indent=2, default=str)
+    except Exception:
+        pass
+
+def log_signal(signal_data):
+    entry = {{"timestamp": datetime.now(timezone.utc).isoformat(), **signal_data}}
+    try:
+        logs = []
+        if os.path.exists(SIGNAL_LOG_FILE):
+            with open(SIGNAL_LOG_FILE, "r") as f:
+                logs = json.load(f)
+        logs.append(entry)
+        logs = logs[-1000:]
+        with open(SIGNAL_LOG_FILE, "w") as f:
+            json.dump(logs, f, indent=2, default=str)
+    except Exception:
+        pass
 
 print("[BOT] SCRIPT STARTED", flush=True)
 print(f"[BOT] Python: {{sys.executable}}", flush=True)
@@ -996,7 +1274,16 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# NOTE: refresh_universe() is called inside run_cycle(), not here
+# Refresh universe on startup
+print("[BOT] Refreshing universe...", flush=True)
+try:
+    strategy.refresh_universe()
+    print(f"[BOT] ✅ Universe refreshed: {{len(strategy.universe)}} symbols", flush=True)
+    # Log the universe
+    log_scan("SYSTEM", "universe_refresh", True, f"Loaded {{len(strategy.universe)}} symbols", {{"universe": strategy.universe[:20]}})
+except Exception as e:
+    print(f"[BOT] ⚠️ Universe refresh failed: {{e}}", flush=True)
+
 print("[BOT] Starting main loop...", flush=True)
 import time
 cycle = 0
@@ -1004,8 +1291,39 @@ while True:
     cycle += 1
     try:
         print(f"[BOT] Cycle {{cycle}} starting...", flush=True)
+
+        # Log each symbol evaluation
+        signals_found = 0
+        for symbol in strategy.universe:
+            try:
+                signal = strategy.evaluate_symbol(symbol)
+                if signal:
+                    signals_found += 1
+                    log_signal({{
+                        "symbol": signal.symbol,
+                        "direction": signal.direction,
+                        "entry_price": signal.entry_price,
+                        "stop_loss": signal.stop_loss,
+                        "take_profit": signal.take_profit,
+                        "confidence": signal.confidence,
+                        "signal_id": signal.signal_id,
+                        "cycle": cycle,
+                    }})
+                    print(f"[BOT] 🎯 SIGNAL: {{signal.symbol}} {{signal.direction}} @ {{signal.entry_price:.4f}}", flush=True)
+            except Exception as e:
+                log_scan(symbol, "evaluation_error", False, str(e))
+
+        # Also run the full cycle for execution
         result = strategy.run_cycle()
-        print(f"[BOT] ✅ Cycle {{cycle}}: {{result}}", flush=True)
+        print(f"[BOT] ✅ Cycle {{cycle}}: {{result}} | Signals: {{signals_found}}", flush=True)
+
+        # Log scan summary
+        log_scan("SYSTEM", "cycle_complete", True, f"Cycle {{cycle}} complete", {{
+            "result": result,
+            "signals_found": signals_found,
+            "universe_size": len(strategy.universe),
+        }})
+
     except Exception as e:
         print(f"[BOT] ❌ Cycle {{cycle}} error: {{e}}", flush=True)
         import traceback
