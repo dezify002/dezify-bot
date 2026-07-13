@@ -396,7 +396,55 @@
             .stats { grid-template-columns: repeat(2, 1fr); }
             .explain-panel { width: 100%; right: -100%; }
         }
+    
+        /* Scan Visibility Styles */
+        .scan-card { background: #1a1f2e; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; }
+        .scan-card-header { padding: 1rem 1.25rem; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; }
+        .scan-card-title { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+        .scan-card-body { padding: 1rem; }
+        .scan-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; }
+        .scan-tab { padding: 0.4rem 0.8rem; border: none; background: transparent; color: #64748b; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
+        .scan-tab:hover { color: #e2e8f0; background: rgba(255,255,255,0.03); }
+        .scan-tab.active { color: #00d4aa; background: rgba(0,212,170,0.1); }
+        .scan-content { display: none; }
+        .scan-content.active { display: block; }
+        .scan-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+        .scan-stat { background: #111827; border-radius: 8px; padding: 0.75rem; text-align: center; }
+        .scan-stat-value { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }
+        .scan-stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; margin-top: 0.25rem; }
+        .scan-stat-value.green { color: #22c55e; }
+        .scan-stat-value.blue { color: #60a5fa; }
+        .scan-stat-value.orange { color: #f59e0b; }
+        .candidate-item { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: #111827; border-radius: 8px; margin-bottom: 0.5rem; border: 1px solid transparent; transition: all 0.2s; }
+        .candidate-item:hover { border-color: #00d4aa; }
+        .candidate-symbol { font-weight: 700; font-size: 0.9rem; color: #f1f5f9; }
+        .candidate-meta { font-size: 0.75rem; color: #64748b; }
+        .candidate-price { font-family: monospace; font-size: 0.85rem; color: #e2e8f0; }
+        .candidate-change { font-size: 0.8rem; font-weight: 600; }
+        .candidate-change.up { color: #22c55e; }
+        .candidate-change.down { color: #ef4444; }
+        .candidate-vol { font-size: 0.7rem; color: #475569; }
+        .layer-funnel { display: flex; flex-direction: column; gap: 0.4rem; }
+        .layer-bar { display: flex; align-items: center; gap: 0.75rem; }
+        .layer-bar-label { width: 120px; font-size: 0.75rem; color: #94a3b8; text-align: right; flex-shrink: 0; }
+        .layer-bar-track { flex: 1; height: 24px; background: #111827; border-radius: 6px; overflow: hidden; position: relative; }
+        .layer-bar-fill { height: 100%; border-radius: 6px; transition: width 0.5s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 0.5rem; font-size: 0.7rem; font-weight: 700; color: white; }
+        .layer-bar-fill.pass { background: linear-gradient(90deg, #22c55e, #16a34a); }
+        .layer-bar-fill.fail { background: linear-gradient(90deg, #ef4444, #dc2626); }
+        .signal-item { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 0.75rem; align-items: center; padding: 0.6rem 0.75rem; background: #111827; border-radius: 8px; margin-bottom: 0.5rem; }
+        .signal-badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+        .signal-badge.long { background: rgba(0,212,170,0.15); color: #00d4aa; }
+        .signal-badge.short { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .signal-time { font-size: 0.7rem; color: #475569; }
+        .scan-refresh-btn { padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border: none; border-radius: 6px; color: white; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .scan-refresh-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
+        .scan-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .scan-loading { text-align: center; padding: 2rem; color: #64748b; }
+        .scan-empty { text-align: center; padding: 2rem; color: #475569; font-size: 0.85rem; }
+        .watchlist-tag { display: inline-block; padding: 0.15rem 0.4rem; background: rgba(0,212,170,0.1); color: #00d4aa; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 0.5rem; }
+
     </style>
+<base target="_blank">
 <base target="_blank">
 <base target="_blank">
 </head>
@@ -537,6 +585,83 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+
+        <!-- Scan Visibility -->
+        <div class="scan-card">
+            <div class="scan-card-header">
+                <div class="scan-card-title">🔍 Token Scan Visibility</div>
+                <button class="scan-refresh-btn" id="scanRefreshBtn" onclick="refreshScan()">🔄 Refresh</button>
+            </div>
+            <div class="scan-card-body">
+                <div class="scan-tabs">
+                    <button class="scan-tab active" onclick="switchScanTab('live')" data-tab="live">⚡ Live Scan</button>
+                    <button class="scan-tab" onclick="switchScanTab('summary')" data-tab="summary">📊 Scan Summary</button>
+                    <button class="scan-tab" onclick="switchScanTab('signals')" data-tab="signals">🎯 Signals</button>
+                    <button class="scan-tab" onclick="switchScanTab('layers')" data-tab="layers">🧩 Layer Funnel</button>
+                </div>
+
+                <!-- Live Scan Tab -->
+                <div class="scan-content active" id="scanTab-live">
+                    <div class="scan-summary-grid">
+                        <div class="scan-stat">
+                            <div class="scan-stat-value blue" id="liveTotalScanned">—</div>
+                            <div class="scan-stat-label">Symbols Scanned</div>
+                        </div>
+                        <div class="scan-stat">
+                            <div class="scan-stat-value green" id="liveTopCandidates">—</div>
+                            <div class="scan-stat-label">Top Candidates</div>
+                        </div>
+                        <div class="scan-stat">
+                            <div class="scan-stat-value orange" id="liveScanTime">—</div>
+                            <div class="scan-stat-label">Last Scan</div>
+                        </div>
+                    </div>
+                    <div id="liveCandidatesList">
+                        <div class="scan-loading">Click Refresh to scan live market data...</div>
+                    </div>
+                </div>
+
+                <!-- Scan Summary Tab -->
+                <div class="scan-content" id="scanTab-summary">
+                    <div class="scan-summary-grid">
+                        <div class="scan-stat">
+                            <div class="scan-stat-value" id="sumTotalEvals">—</div>
+                            <div class="scan-stat-label">Total Evaluations</div>
+                        </div>
+                        <div class="scan-stat">
+                            <div class="scan-stat-value blue" id="sumUniqueScanned">—</div>
+                            <div class="scan-stat-label">Unique Scanned</div>
+                        </div>
+                        <div class="scan-stat">
+                            <div class="scan-stat-value green" id="sumUniquePassed">—</div>
+                            <div class="scan-stat-label">Passed All Layers</div>
+                        </div>
+                        <div class="scan-stat">
+                            <div class="scan-stat-value orange" id="sumSignals">—</div>
+                            <div class="scan-stat-label">Signals Generated</div>
+                        </div>
+                    </div>
+                    <div id="scanSummaryDetails">
+                        <div class="scan-empty">Start the bot to generate scan data...</div>
+                    </div>
+                </div>
+
+                <!-- Signals Tab -->
+                <div class="scan-content" id="scanTab-signals">
+                    <div id="signalsList">
+                        <div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div>
+                    </div>
+                </div>
+
+                <!-- Layer Funnel Tab -->
+                <div class="scan-content" id="scanTab-layers">
+                    <div id="layerFunnel">
+                        <div class="scan-empty">No layer data available. Start the bot to populate.</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1144,6 +1269,225 @@ document.addEventListener('DOMContentLoaded', () => {
     loadArchives();
 });
 
-    </script>
+    
+
+
+// =============================================================================
+// SCAN VISIBILITY — Live Token Tracking
+// =============================================================================
+
+let currentScanTab = 'live';
+let scanPollInterval = null;
+
+function switchScanTab(tab) {
+    currentScanTab = tab;
+    document.querySelectorAll('.scan-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.scan-content').forEach(c => c.classList.toggle('active', c.id === 'scanTab-' + tab));
+
+    if (tab === 'live') refreshScan();
+    if (tab === 'summary') loadScanSummary();
+    if (tab === 'signals') loadSignalLog();
+    if (tab === 'layers') loadLayerFunnel();
+}
+
+async function refreshScan() {
+    const btn = document.getElementById('scanRefreshBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Scanning...';
+
+    try {
+        const res = await fetch('/api/live-scan');
+        const data = await res.json();
+
+        document.getElementById('liveTotalScanned').textContent = data.total_scanned || 0;
+        document.getElementById('liveTopCandidates').textContent = (data.top_candidates || []).length;
+        document.getElementById('liveScanTime').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '—';
+
+        const list = document.getElementById('liveCandidatesList');
+        const candidates = data.top_candidates || [];
+
+        if (!candidates.length) {
+            list.innerHTML = '<div class="scan-empty">No candidates found. API may be unavailable.</div>';
+            return;
+        }
+
+        list.innerHTML = candidates.slice(0, 10).map((c, i) => {
+            const change = c.change_24h_pct || 0;
+            const changeClass = change >= 0 ? 'up' : 'down';
+            const changeSign = change >= 0 ? '+' : '';
+            const volM = (c.volume_24h / 1_000_000).toFixed(1);
+
+            return `
+                <div class="candidate-item">
+                    <div>
+                        <div class="candidate-symbol">#${i+1} ${c.symbol}${i < 3 ? '<span class="watchlist-tag">WATCHLIST</span>' : ''}</div>
+                        <div class="candidate-meta">Vol: $${volM}M | Range: $${c.low_24h?.toFixed(2) || '—'} - $${c.high_24h?.toFixed(2) || '—'}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="candidate-price">$${c.last_price?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) || '—'}</div>
+                        <div class="candidate-change ${changeClass}">${changeSign}${change.toFixed(2)}%</div>
+                        <div class="candidate-vol">24h change</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    } catch (e) {
+        document.getElementById('liveCandidatesList').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 Refresh';
+    }
+}
+
+async function loadScanSummary() {
+    try {
+        const res = await fetch('/api/scan-summary?hours=1');
+        const data = await res.json();
+
+        document.getElementById('sumTotalEvals').textContent = data.total_evaluations || 0;
+        document.getElementById('sumUniqueScanned').textContent = data.unique_symbols_scanned || 0;
+        document.getElementById('sumUniquePassed').textContent = data.unique_symbols_passed || 0;
+
+        // Count signals from signal log
+        const signalRes = await fetch('/api/signal-log?limit=100');
+        const signalData = await signalRes.json();
+        document.getElementById('sumSignals').textContent = (signalData.signals || []).length;
+
+        const details = document.getElementById('scanSummaryDetails');
+        const symbols = data.symbols_scanned || [];
+        const passed = data.symbols_passed || [];
+
+        if (!symbols.length) {
+            details.innerHTML = '<div class="scan-empty">No scan data yet. Start the bot to begin scanning.</div>';
+            return;
+        }
+
+        details.innerHTML = `
+            <div style="margin-bottom:1rem;">
+                <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Recently Scanned Symbols (${symbols.length}):</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+                    ${symbols.map(s => `<span style="padding:0.2rem 0.5rem;background:#111827;border-radius:4px;font-size:0.75rem;color:#e2e8f0;">${s}</span>`).join('')}
+                </div>
+            </div>
+            ${passed.length ? `
+            <div>
+                <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Passed All Layers (${passed.length}):</div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+                    ${passed.map(s => `<span style="padding:0.2rem 0.5rem;background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);border-radius:4px;font-size:0.75rem;color:#00d4aa;font-weight:600;">${s}</span>`).join('')}
+                </div>
+            </div>` : ''}
+        `;
+
+    } catch (e) {
+        document.getElementById('scanSummaryDetails').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
+    }
+}
+
+async function loadSignalLog() {
+    try {
+        const res = await fetch('/api/signal-log?limit=20');
+        const data = await res.json();
+        const signals = data.signals || [];
+        const list = document.getElementById('signalsList');
+
+        if (!signals.length) {
+            list.innerHTML = '<div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div>';
+            return;
+        }
+
+        list.innerHTML = signals.slice().reverse().map(s => {
+            const time = s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : '—';
+            const dirClass = s.direction === 'long' ? 'long' : 'short';
+            return `
+                <div class="signal-item">
+                    <span class="signal-badge ${dirClass}">${s.direction?.toUpperCase()}</span>
+                    <div>
+                        <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;">${s.symbol}</div>
+                        <div style="font-size:0.75rem;color:#64748b;">Entry: $${s.entry_price?.toFixed(4) || '—'} | SL: $${s.stop_loss?.toFixed(4) || '—'} | TP: $${s.take_profit?.toFixed(4) || '—'}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:0.8rem;color:#94a3b8;">Conf: ${s.confidence || '—'}%</div>
+                    </div>
+                    <div class="signal-time">${time}</div>
+                </div>
+            `;
+        }).join('');
+
+    } catch (e) {
+        document.getElementById('signalsList').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
+    }
+}
+
+async function loadLayerFunnel() {
+    try {
+        const res = await fetch('/api/scan-summary?hours=1');
+        const data = await res.json();
+        const layerStats = data.layer_stats || {};
+        const container = document.getElementById('layerFunnel');
+
+        if (!Object.keys(layerStats).length) {
+            container.innerHTML = '<div class="scan-empty">No layer data yet. Start the bot to populate the funnel.</div>';
+            return;
+        }
+
+        // Find max for scaling
+        const maxTotal = Math.max(...Object.values(layerStats).map(l => l.passed + l.failed), 1);
+
+        const layerNames = {
+            'layer_1_regime': '🌊 Layer 1: Market Regime',
+            'layer_2_trend': '📈 Layer 2: Trend Analysis',
+            'layer_3_pullback': '🎯 Layer 3: Pullback Detection',
+            'layer_4_entry': '⚡ Layer 4: Entry Trigger',
+            'layer_5_risk': '🛡️ Layer 5: Risk Management',
+            'layer_6_execution': '🔧 Layer 6: Execution',
+            'layer_7_management': '📋 Layer 7: Trade Management',
+            'layer_8_performance': '📊 Layer 8: Performance Review',
+        };
+
+        container.innerHTML = `<div class="layer-funnel">` + 
+            Object.entries(layerStats).map(([key, stats]) => {
+                const total = stats.passed + stats.failed;
+                const passPct = total > 0 ? (stats.passed / total * 100) : 0;
+                const passWidth = total > 0 ? (stats.passed / maxTotal * 100) : 0;
+                const failWidth = total > 0 ? (stats.failed / maxTotal * 100) : 0;
+                const name = layerNames[key] || key;
+
+                return `
+                    <div class="layer-bar">
+                        <div class="layer-bar-label">${name}</div>
+                        <div class="layer-bar-track">
+                            <div class="layer-bar-fill pass" style="width:${passWidth}%;position:absolute;left:0;">${stats.passed > 0 ? stats.passed : ''}</div>
+                            ${failWidth > 0 ? `<div class="layer-bar-fill fail" style="width:${failWidth}%;position:absolute;left:${passWidth}%;">${stats.failed}</div>` : ''}
+                        </div>
+                        <div style="width:50px;text-align:right;font-size:0.75rem;color:#94a3b8;">${passPct.toFixed(0)}% pass</div>
+                    </div>
+                `;
+            }).join('') + 
+            `</div>`;
+
+    } catch (e) {
+        document.getElementById('layerFunnel').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
+    }
+}
+
+// Auto-refresh scan data every 30 seconds when visible
+function startScanPolling() {
+    if (scanPollInterval) clearInterval(scanPollInterval);
+    scanPollInterval = setInterval(() => {
+        if (currentScanTab === 'live') refreshScan();
+        if (currentScanTab === 'summary') loadScanSummary();
+        if (currentScanTab === 'signals') loadSignalLog();
+        if (currentScanTab === 'layers') loadLayerFunnel();
+    }, 30000);
+}
+
+// Initialize scan visibility on page load
+document.addEventListener('DOMContentLoaded', () => {
+    refreshScan();
+    startScanPolling();
+});
+
+</script>
 </body>
 </html>
