@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from strategies.trend_pullback import TrendPullbackStrategy
+from strategies.trend_pullback_v3 import TrendPullbackStrategy
 from core.execution_engine import ExecutionEngine
 from data.database import Database
 from utils.logger import get_logger

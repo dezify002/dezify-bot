@@ -20,9 +20,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, jsonify, request, session, send_file
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = "dezify_secret_key_2026"
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 
-PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
+PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
+if not PASSWORD:
+    raise ValueError("DASHBOARD_PASSWORD environment variable must be set")
 
 # =============================================================================
 # PATHS
