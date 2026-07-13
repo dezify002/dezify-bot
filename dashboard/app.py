@@ -367,60 +367,134 @@ def _clear_session_state() -> Dict[str, Any]:
 # =============================================================================
 # DEMO DATA
 # =============================================================================
-def _generate_demo_positions(mode: str) -> list:
-    """Generate dynamic demo positions so they change each session."""
-    import random
-    random.seed(int(datetime.now(timezone.utc).timestamp()) // 3600)  # Change hourly
+def _scan_bitget_universe(min_volume_usd: float = 5_000_000) -> List[Dict]:
+    """
+    Scan Bitget API for real trading candidates.
+    Returns list of dicts with symbol, price, volume, 24h change.
+    """
+    try:
+        from core.bitget_client import BitgetClient
+        client = BitgetClient()
+        tickers = client.get_tickers(product_type="USDT-FUTURES")
 
-    symbols_pool = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "DOTUSDT", 
-                    "LINKUSDT", "MATICUSDT", "AVAXUSDT", "UNIUSDT", "ATOMUSDT"]
-    random.shuffle(symbols_pool)
+        candidates = []
+        for ticker in tickers:
+            symbol = ticker.get("symbol", "")
+            # Skip non-USDT and blacklisted
+            if not symbol.endswith("USDT"):
+                continue
 
-    if mode == "paper":
-        return [
-            {
-                "id": f"demo-p{i+1}",
-                "symbol": symbols_pool[i],
-                "direction": random.choice(["long", "short"]),
-                "entry_price": round(random.uniform(1000, 50000), 2),
-                "current_price": round(random.uniform(1000, 50000), 2),
-                "stop_loss": round(random.uniform(500, 45000), 2),
-                "take_profit": round(random.uniform(5000, 60000), 2),
-                "position_size": round(random.uniform(0.01, 1.0), 4),
-                "position_value": round(random.uniform(100, 5000), 2),
-                "leverage": random.choice([2, 3, 5, 10]),
-                "risk_pct": round(random.uniform(0.005, 0.02), 4),
-                "pnl_pct": round(random.uniform(-5, 8), 2),
-                "entry_time": datetime.now(timezone.utc).isoformat(),
-                "r_multiple": round(random.uniform(-1, 2), 2),
-            }
-            for i in range(min(2, len(symbols_pool)))
-        ]
-    elif mode == "backtest":
-        return [
-            {
-                "id": "demo-bt1",
-                "symbol": symbols_pool[0],
-                "direction": "long",
-                "entry_price": round(random.uniform(50, 200), 2),
-                "current_price": round(random.uniform(60, 250), 2),
-                "stop_loss": round(random.uniform(40, 180), 2),
-                "take_profit": round(random.uniform(80, 300), 2),
-                "position_size": round(random.uniform(5, 20), 2),
-                "position_value": round(random.uniform(500, 3000), 2),
-                "leverage": random.choice([2, 3, 4, 5]),
-                "risk_pct": round(random.uniform(0.005, 0.015), 4),
-                "pnl_pct": round(random.uniform(5, 15), 2),
-                "entry_time": datetime.now(timezone.utc).isoformat(),
-                "r_multiple": round(random.uniform(0.5, 2), 2),
-            }
-        ]
-    return []
+            # Parse volume
+            volume_24h = float(ticker.get("usdtVolume", 0) or ticker.get("volume", 0) or 0)
+            if volume_24h < min_volume_usd:
+                continue
 
-# Legacy static dict for backward compatibility
+            # Parse price data
+            last_price = float(ticker.get("last") or ticker.get("close") or ticker.get("lastPr") or 0)
+            high_24h = float(ticker.get("high24h") or ticker.get("high24h", 0) or 0)
+            low_24h = float(ticker.get("low24h") or ticker.get("low24h", 0) or 0)
+            change_24h_pct = float(ticker.get("change24h") or ticker.get("change24h", 0) or 0)
+
+            if last_price <= 0:
+                continue
+
+            candidates.append({
+                "symbol": symbol,
+                "last_price": last_price,
+                "volume_24h": volume_24h,
+                "high_24h": high_24h,
+                "low_24h": low_24h,
+                "change_24h_pct": change_24h_pct,
+            })
+
+        # Sort by volume descending
+        candidates.sort(key=lambda x: x["volume_24h"], reverse=True)
+        logger.info(f"Bitget scan: {len(candidates)} symbols with ${min_volume_usd:,.0f}+ volume")
+        return candidates
+
+    except Exception as e:
+        logger.error(f"Bitget universe scan failed: {e}")
+        return []
+
+
+def _get_top_candidates(candidates: List[Dict], top_n: int = 10) -> List[Dict]:
+    """Get top N candidates by volume, excluding stablecoins and leveraged tokens."""
+    # Exclude stablecoins and leveraged/synthetic tokens
+    excluded_patterns = ["USDC", "USDT", "BUSD", "DAI", "TUSD", "FDUSD", "PYUSD"]
+    excluded_suffixes = ["2L", "2S", "3L", "3S", "4L", "4S", "5L", "5S", "UP", "DOWN", "BEAR", "BULL"]
+
+    filtered = []
+    for c in candidates:
+        sym = c["symbol"]
+        # Skip stablecoin pairs
+        base = sym.replace("USDT", "")
+        if base in excluded_patterns:
+            continue
+        # Skip leveraged tokens
+        if any(sym.endswith(s) for s in excluded_suffixes):
+            continue
+        filtered.append(c)
+
+    return filtered[:top_n]
+
+
+def _generate_live_scan_positions(mode: str) -> List[Dict]:
+    """
+    Generate positions from REAL Bitget API scan.
+    This is what shows when the bot is 'calm' — actual market scan, not random.
+    """
+    candidates = _scan_bitget_universe(min_volume_usd=5_000_000)
+    top = _get_top_candidates(candidates, top_n=10)
+
+    if not top:
+        # Fallback: return empty but log the issue
+        logger.warning("Bitget scan returned no candidates — API may be unavailable")
+        return []
+
+    positions = []
+    for i, cand in enumerate(top[:3]):  # Show top 3 as "watchlist"
+        # Determine direction based on 24h trend
+        direction = "long" if cand["change_24h_pct"] >= 0 else "short"
+
+        # Calculate realistic stop/take levels
+        price_range = cand["high_24h"] - cand["low_24h"]
+        if price_range <= 0:
+            price_range = cand["last_price"] * 0.02
+
+        if direction == "long":
+            stop_loss = round(cand["last_price"] - price_range * 0.3, 4)
+            take_profit = round(cand["last_price"] + price_range * 0.9, 4)
+        else:
+            stop_loss = round(cand["last_price"] + price_range * 0.3, 4)
+            take_profit = round(cand["last_price"] - price_range * 0.9, 4)
+
+        positions.append({
+            "id": f"scan-{i+1}",
+            "symbol": cand["symbol"],
+            "direction": direction,
+            "entry_price": round(cand["last_price"], 4),
+            "current_price": round(cand["last_price"], 4),
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "position_size": 0,
+            "position_value": 0,
+            "leverage": 1,
+            "risk_pct": 0,
+            "pnl_pct": round(cand["change_24h_pct"], 2),
+            "entry_time": datetime.now(timezone.utc).isoformat(),
+            "r_multiple": 0,
+            "watchlist": True,  # Flag: not a real position, just a scan result
+            "volume_24h": cand["volume_24h"],
+            "change_24h_pct": cand["change_24h_pct"],
+        })
+
+    return positions
+
+
+# Legacy static dict — only used if API completely fails
 DEMO_POSITIONS = {
-    "paper": _generate_demo_positions("paper"),
-    "backtest": _generate_demo_positions("backtest"),
+    "paper": [],
+    "backtest": [],
     "live": [],
 }
 
@@ -1030,11 +1104,19 @@ def get_status():
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
+        # Include scan results in status
+        scan = _scan_bitget_universe(min_volume_usd=5_000_000)
+        top_symbols = [c["symbol"] for c in _get_top_candidates(scan, 5)]
         return jsonify({
             "running": False, "mode": mode, "cycle_count": 0,
             "last_cycle_time": None, "last_error": None,
             **stats, "demo": True,
             "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE,
+            "scan": {
+                "symbols_scanned": len(scan),
+                "top_candidates": top_symbols,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+            }
         })
 
     is_running = _is_bot_running()
@@ -1131,7 +1213,15 @@ def get_backtest_status():
 def get_positions():
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
-        return jsonify({"positions": DEMO_POSITIONS.get(mode, []), "count": len(DEMO_POSITIONS.get(mode, [])), "mode": mode, "demo": True})
+        # Try live scan first, fallback to empty
+        scan_positions = _generate_live_scan_positions(mode)
+        return jsonify({
+            "positions": scan_positions,
+            "count": len(scan_positions),
+            "mode": mode,
+            "demo": True,
+            "source": "bitget_scan" if scan_positions else "empty",
+        })
 
     try:
         if not Database:
