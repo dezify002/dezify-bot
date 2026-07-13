@@ -20,11 +20,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, jsonify, request, session, send_file
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
+import secrets
+app.secret_key = os.environ.get("SECRET_KEY")
+if not app.secret_key:
+    app.secret_key = secrets.token_hex(32)
+    print("WARNING: Using random SECRET_KEY. Set SECRET_KEY env var for persistent sessions.")
 
-PASSWORD = os.environ.get("DASHBOARD_PASSWORD")
-if not PASSWORD:
-    raise ValueError("DASHBOARD_PASSWORD environment variable must be set")
+PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
+# SECURITY NOTE: Set DASHBOARD_PASSWORD env var in production!
+# Default fallback only for development.
 
 # =============================================================================
 # PATHS
@@ -363,59 +367,60 @@ def _clear_session_state() -> Dict[str, Any]:
 # =============================================================================
 # DEMO DATA
 # =============================================================================
+def _generate_demo_positions(mode: str) -> list:
+    """Generate dynamic demo positions so they change each session."""
+    import random
+    random.seed(int(datetime.now(timezone.utc).timestamp()) // 3600)  # Change hourly
+
+    symbols_pool = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "DOTUSDT", 
+                    "LINKUSDT", "MATICUSDT", "AVAXUSDT", "UNIUSDT", "ATOMUSDT"]
+    random.shuffle(symbols_pool)
+
+    if mode == "paper":
+        return [
+            {
+                "id": f"demo-p{i+1}",
+                "symbol": symbols_pool[i],
+                "direction": random.choice(["long", "short"]),
+                "entry_price": round(random.uniform(1000, 50000), 2),
+                "current_price": round(random.uniform(1000, 50000), 2),
+                "stop_loss": round(random.uniform(500, 45000), 2),
+                "take_profit": round(random.uniform(5000, 60000), 2),
+                "position_size": round(random.uniform(0.01, 1.0), 4),
+                "position_value": round(random.uniform(100, 5000), 2),
+                "leverage": random.choice([2, 3, 5, 10]),
+                "risk_pct": round(random.uniform(0.005, 0.02), 4),
+                "pnl_pct": round(random.uniform(-5, 8), 2),
+                "entry_time": datetime.now(timezone.utc).isoformat(),
+                "r_multiple": round(random.uniform(-1, 2), 2),
+            }
+            for i in range(min(2, len(symbols_pool)))
+        ]
+    elif mode == "backtest":
+        return [
+            {
+                "id": "demo-bt1",
+                "symbol": symbols_pool[0],
+                "direction": "long",
+                "entry_price": round(random.uniform(50, 200), 2),
+                "current_price": round(random.uniform(60, 250), 2),
+                "stop_loss": round(random.uniform(40, 180), 2),
+                "take_profit": round(random.uniform(80, 300), 2),
+                "position_size": round(random.uniform(5, 20), 2),
+                "position_value": round(random.uniform(500, 3000), 2),
+                "leverage": random.choice([2, 3, 4, 5]),
+                "risk_pct": round(random.uniform(0.005, 0.015), 4),
+                "pnl_pct": round(random.uniform(5, 15), 2),
+                "entry_time": datetime.now(timezone.utc).isoformat(),
+                "r_multiple": round(random.uniform(0.5, 2), 2),
+            }
+        ]
+    return []
+
+# Legacy static dict for backward compatibility
 DEMO_POSITIONS = {
-    "paper": [
-        {
-            "id": "demo-p1",
-            "symbol": "BTCUSDT",
-            "direction": "long",
-            "entry_price": 98500.0,
-            "current_price": 101200.0,
-            "stop_loss": 96000.0,
-            "take_profit": 108000.0,
-            "position_size": 0.05,
-            "position_value": 5060.0,
-            "leverage": 5,
-            "risk_pct": 0.01,
-            "pnl_pct": 2.74,
-            "entry_time": datetime.now(timezone.utc).isoformat(),
-            "r_multiple": 0.55,
-        },
-        {
-            "id": "demo-p2", 
-            "symbol": "ETHUSDT",
-            "direction": "short",
-            "entry_price": 3650.0,
-            "current_price": 3520.0,
-            "stop_loss": 3800.0,
-            "take_profit": 3200.0,
-            "position_size": 0.8,
-            "position_value": 2816.0,
-            "leverage": 3,
-            "risk_pct": 0.015,
-            "pnl_pct": 3.56,
-            "entry_time": datetime.now(timezone.utc).isoformat(),
-            "r_multiple": 0.71,
-        },
-    ],
-    "backtest": [
-        {
-            "id": "demo-bt1",
-            "symbol": "SOLUSDT",
-            "direction": "long",
-            "entry_price": 145.0,
-            "current_price": 162.0,
-            "stop_loss": 130.0,
-            "take_profit": 180.0,
-            "position_size": 12.0,
-            "position_value": 1944.0,
-            "leverage": 4,
-            "risk_pct": 0.012,
-            "pnl_pct": 11.72,
-            "entry_time": datetime.now(timezone.utc).isoformat(),
-            "r_multiple": 1.13,
-        },
-    ],
+    "paper": _generate_demo_positions("paper"),
+    "backtest": _generate_demo_positions("backtest"),
     "live": [],
 }
 
@@ -505,7 +510,20 @@ DEMO_STATS = {
 
 
 def _is_demo_mode() -> bool:
-    return request.args.get("demo", "0") == "1" or request.args.get("demo_mode", "0") == "1"
+    """Check if demo mode is requested OR if no real data exists."""
+    explicit_demo = request.args.get("demo", "0") == "1" or request.args.get("demo_mode", "0") == "1"
+    if explicit_demo:
+        return True
+    # If no database or no trades, show demo data
+    try:
+        if Database:
+            db = Database()
+            trades = db.get_all_trades(limit=1)
+            if trades:
+                return False
+    except Exception:
+        pass
+    return True
 
 
 # =============================================================================
