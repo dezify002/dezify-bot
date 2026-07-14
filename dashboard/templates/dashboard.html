@@ -143,13 +143,6 @@
         .scan-log-layer { color: #94a3b8; font-size: 0.75rem; }
         .scan-log-reason { color: #64748b; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .scan-log-time { color: #475569; font-size: 0.7rem; white-space: nowrap; }
-        .reset-result-panel { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; }
-        .reset-result-item { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.8rem; border-bottom: 1px solid #1e293b; }
-        .reset-result-item:last-child { border-bottom: none; }
-        .reset-result-label { color: #94a3b8; }
-        .reset-result-value { font-weight: 600; font-family: monospace; }
-        .reset-result-value.ok { color: #22c55e; }
-        .reset-result-value.fail { color: #ef4444; }
     </style>
 <base target="_blank">
 </head>
@@ -338,14 +331,14 @@
             document.getElementById('statPositions').textContent = positions.length;
             document.getElementById('posLabel').textContent = positions.length + ' active';
             if (!positions.length) { container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No open positions</div><div style="font-size:0.85rem;margin-top:0.5rem;">' + (botRunning ? 'Scanning for signals...' : 'Click Start Bot to begin') + '</div></div>'; return; }
-            container.innerHTML = positions.map(p => '<div class="pos-item" onclick="showExplain('' + p.id + '')"><div class="pos-badge ' + p.direction + '">' + (p.direction === 'long' ? '▲' : '▼') + ' ' + p.direction.toUpperCase() + '</div><div><div class="pos-symbol">' + p.symbol + '</div><div class="pos-detail">Entry: <span>$' + p.entry_price + '</span> | SL: <span style="color:#ef4444">$' + p.stop_loss + '</span> | TP: <span style="color:#22c55e">$' + p.take_profit + '</span></div><div class="pos-detail">Size: <span>' + (p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size) + '</span> | Lev: <span>' + p.leverage + 'x</span> | Risk: <span>' + (p.risk_pct * 100).toFixed(2) + '%</span></div></div><div class="pos-pnl"><div class="pos-pnl-value ' + (p.pnl_pct >= 0 ? 'green' : 'red') + '">' + (p.pnl_pct >= 0 ? '+' : '') + (p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct) + '%</div><div class="pos-pnl-sub">Unrealized</div></div></div>').join('');
+            container.innerHTML = positions.map(p => '<div class="pos-item" onclick="showExplain(\'' + p.id + '\')"><div class="pos-badge ' + p.direction + '">' + (p.direction === 'long' ? '▲' : '▼') + ' ' + p.direction.toUpperCase() + '</div><div><div class="pos-symbol">' + p.symbol + '</div><div class="pos-detail">Entry: <span>$' + p.entry_price + '</span> | SL: <span style="color:#ef4444">$' + p.stop_loss + '</span> | TP: <span style="color:#22c55e">$' + p.take_profit + '</span></div><div class="pos-detail">Size: <span>' + (p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size) + '</span> | Lev: <span>' + p.leverage + 'x</span> | Risk: <span>' + (p.risk_pct * 100).toFixed(2) + '%</span></div></div><div class="pos-pnl"><div class="pos-pnl-value ' + (p.pnl_pct >= 0 ? 'green' : 'red') + '">' + (p.pnl_pct >= 0 ? '+' : '') + (p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct) + '%</div><div class="pos-pnl-sub">Unrealized</div></div></div>').join('');
         }
 
         function renderTrades(trades) {
             const tbody = document.getElementById('tradeTable');
             document.getElementById('tradeLabel').textContent = trades.length + ' total';
             if (!trades.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr>'; return; }
-            tbody.innerHTML = trades.map(t => '<tr onclick="showExplain('' + t.trade_id + '')"><td style="font-weight:600;">' + t.symbol + '</td><td class="' + (t.direction === 'long' ? 'dir-long' : 'dir-short') + '">' + (t.direction === 'long' ? '▲ LONG' : '▼ SHORT') + '</td><td>$' + t.entry_price + '</td><td>' + (t.exit_price ? '$' + t.exit_price : '—') + '</td><td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl) + '</td><td class="' + (t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.r_multiple >= 0 ? '+' : '') + (t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple) + 'R</td></tr>').join('');
+            tbody.innerHTML = trades.map(t => '<tr onclick="showExplain(\'' + t.trade_id + '\')"><td style="font-weight:600;">' + t.symbol + '</td><td class="' + (t.direction === 'long' ? 'dir-long' : 'dir-short') + '">' + (t.direction === 'long' ? '▲ LONG' : '▼ SHORT') + '</td><td>$' + t.entry_price + '</td><td>' + (t.exit_price ? '$' + t.exit_price : '—') + '</td><td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl) + '</td><td class="' + (t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.r_multiple >= 0 ? '+' : '') + (t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple) + 'R</td></tr>').join('');
         }
 
         async function showExplain(tradeId) {
@@ -394,24 +387,44 @@
             } else { updateDashboardForMode(currentMode); status.className = 'status offline'; statusText.textContent = 'Offline'; }
         }
 
-        // =============================================================================
-        // FORCE STOP / RESET — FIXED: Matches app.py response keys exactly
-        // =============================================================================
+        // FIXED: was raw multi-line strings inside quotes (invalid JS, threw a
+        // syntax error that silently broke this entire <script> block).
+        // Now uses proper \n escapes inside normal quoted strings.
         async function handleForceReset() {
-            const confirmed = confirm("⚠️ FORCE STOP / RESET\n\nThis will:\n• Hard-kill any running bot processes\n• Archive your current trade history\n• DELETE all databases (trades, paper, backtest)\n• Delete scan logs, signal logs, and state files\n• Reset account equity to $10,000\n\nYour trade history will be saved to an archive file before clearing.\n\nContinue?");
+            const confirmed = confirm(
+                "⚠️ FORCE STOP / RESET\n\n" +
+                "This will:\n" +
+                "• Hard-kill any running bot processes\n" +
+                "• Archive your current trade history\n" +
+                "• DELETE all databases (trades, paper, backtest)\n" +
+                "• Delete scan logs, signal logs, and state files\n" +
+                "• Reset account equity to $10,000\n\n" +
+                "Your trade history will be saved to an archive file before clearing.\n\n" +
+                "Continue?"
+            );
             if (!confirmed) return;
+
             const resetBtn = document.getElementById('forceResetBtn');
             if (resetBtn) { resetBtn.disabled = true; resetBtn.textContent = 'Resetting...'; }
+
             try {
                 const response = await fetch('/api/force-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
                 const result = await response.json();
+
                 if (result.success) {
                     let message = "✅ Reset Complete\n\n";
+
                     if (result.processes_killed && result.processes_killed.length > 0) {
                         message += "Processes stopped:\n";
-                        result.processes_killed.forEach(p => { const killed = p.sigterm || p.sigkill; message += "  • PID " + p.pid + ": " + (killed ? '✓ killed' : '✗ failed') + "\n"; });
+                        result.processes_killed.forEach(p => {
+                            const killed = p.sigterm || p.sigkill;
+                            message += "  PID " + p.pid + ": " + (killed ? 'killed' : 'failed') + "\n";
+                        });
                         message += "\n";
-                    } else { message += "No running processes found.\n\n"; }
+                    } else {
+                        message += "No running processes found.\n\n";
+                    }
+
                     if (result.archive && result.archive.saved) {
                         const session = result.archive.session || {};
                         message += "📁 Archive saved:\n";
@@ -421,37 +434,45 @@
                         message += "  Total P&L: $" + (session.total_realized_pnl || 0).toLocaleString() + "\n";
                         message += "  Win rate: " + (session.win_rate_pct || 0) + "%\n\n";
                     }
+
                     if (result.state_cleared) {
                         const sc = result.state_cleared;
                         message += "State cleared:\n";
-                        message += "  • PID file: " + (sc.pid_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Strategy state file: " + (sc.state_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Logs cleared: " + (sc.logs_cleared ? '✓' : '✗') + "\n";
-                        message += "  • Trades DB deleted: " + (sc.db_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Paper DB deleted: " + (sc.paper_db_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Backtest DB deleted: " + (sc.backtest_db_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Scan log deleted: " + (sc.scan_log_deleted ? '✓' : '✗') + "\n";
-                        message += "  • Signal log deleted: " + (sc.signal_log_deleted ? '✓' : '✗') + "\n";
-                        message += "  • In-memory caches: " + (sc.caches_cleared ? '✓' : '✗') + "\n";
+                        message += "  PID file: " + (sc.pid_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Strategy state file: " + (sc.state_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Logs cleared: " + (sc.logs_cleared ? 'OK' : 'FAIL') + "\n";
+                        message += "  Trades DB deleted: " + (sc.db_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Paper DB deleted: " + (sc.paper_db_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Backtest DB deleted: " + (sc.backtest_db_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Scan log deleted: " + (sc.scan_log_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  Signal log deleted: " + (sc.signal_log_deleted ? 'OK' : 'FAIL') + "\n";
+                        message += "  In-memory caches: " + (sc.caches_cleared ? 'OK' : 'FAIL') + "\n";
                     }
+
                     if (result.verify) {
                         const v = result.verify;
-                        message += "\n🔍 Verification:\n";
-                        message += "  • DB file exists: " + (v.db_file_exists ? '⚠️ YES (unexpected)' : '✓ NO (clean)') + "\n";
-                        message += "  • State file exists: " + (v.state_file_exists ? '⚠️ YES' : '✓ NO') + "\n";
-                        message += "  • Bot running: " + (v.bot_running ? '⚠️ YES' : '✓ NO') + "\n";
+                        message += "\nVerification:\n";
+                        message += "  DB file exists: " + (v.db_file_exists ? 'YES (unexpected)' : 'NO (clean)') + "\n";
+                        message += "  State file exists: " + (v.state_file_exists ? 'YES' : 'NO') + "\n";
+                        message += "  Bot running: " + (v.bot_running ? 'YES' : 'NO') + "\n";
                     }
+
                     message += "\n💰 Account equity reset to: $10,000.00";
                     message += "\n🚀 Start a fresh session with your new strategy.";
+
                     alert(message);
                     botRunning = false; updateBotButtonState(); await updateDashboard(); await loadArchives();
                 } else {
-                    let errorMsg = "❌ Reset Failed\n\nError: " + (result.error || 'Unknown error') + "\n";
+                    let errorMsg = "❌ Reset Failed\n\n";
+                    errorMsg += "Error: " + (result.error || 'Unknown error') + "\n";
                     if (result.traceback) errorMsg += "\nDetails: " + result.traceback.substring(0, 500);
                     alert(errorMsg);
                 }
-            } catch (error) { alert("❌ Network error during reset: " + error.message); }
-            finally { if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = '⚠️ Force Reset'; } }
+            } catch (error) {
+                alert("❌ Network error during reset: " + error.message);
+            } finally {
+                if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = '⚠️ Force Reset'; }
+            }
         }
 
         async function loadArchives() {
@@ -466,36 +487,35 @@
                     const li = document.createElement('li');
                     li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid #1e293b;';
                     const date = new Date(archive.created_at), formattedDate = date.toLocaleString(), sizeKB = (archive.size_bytes / 1024).toFixed(1);
-                    li.innerHTML = '<div><div style="font-weight:600;font-size:0.85rem;">' + archive.name + '</div><div style="font-size:0.75rem;color:#64748b;">' + formattedDate + ' • ' + sizeKB + ' KB</div></div><div style="display:flex;gap:0.5rem;"><button onclick="viewArchive('' + archive.name + '')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button><a href="/api/archives/download/' + archive.name + '" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a></div>';
+                    li.innerHTML = '<div><div style="font-weight:600;font-size:0.85rem;">' + archive.name + '</div><div style="font-size:0.75rem;color:#64748b;">' + formattedDate + ' • ' + sizeKB + ' KB</div></div><div style="display:flex;gap:0.5rem;"><button onclick="viewArchive(\'' + archive.name + '\')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button><a href="/api/archives/download/' + archive.name + '" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a></div>';
                     archiveList.appendChild(li);
                 });
             } catch (error) { archiveList.innerHTML = '<li style="color:#ef4444;padding:1rem;text-align:center;">Error loading archives: ' + error.message + '</li>'; }
         }
 
+        // FIXED: same raw-newline-in-string bug as handleForceReset, repaired the same way.
         async function viewArchive(archiveName) {
             try {
                 const response = await fetch('/api/archives/' + archiveName), result = await response.json();
                 if (!result.success) { alert('Error: ' + result.error); return; }
                 const archive = result.archive, session = archive.session || {};
-                let message = '📁 Archive: ' + archiveName + '\n\nArchived: ' + archive.archived_at + '\n';
-                message += 'Trades: ' + (session.total_trades || 0) + '\n';
-                message += 'Closed: ' + (session.closed_trades || 0) + '\n';
-                message += 'Winners: ' + (session.winners || 0) + ' | Losers: ' + (session.losers || 0) + '\n';
-                message += 'Win Rate: ' + (session.win_rate_pct || 0) + '%\n';
-                message += 'Total P&L: $' + (session.total_realized_pnl || 0).toLocaleString() + '\n';
-                message += 'Final Equity: $' + (session.final_equity || 0).toLocaleString() + '\n';
-                message += 'Return: ' + (session.total_return_pct || 0) + '%\n';
+                let message = "Archive: " + archiveName + "\n\n";
+                message += "Archived: " + archive.archived_at + "\n";
+                message += "Trades: " + (session.total_trades || 0) + "\n";
+                message += "Closed: " + (session.closed_trades || 0) + "\n";
+                message += "Winners: " + (session.winners || 0) + " | Losers: " + (session.losers || 0) + "\n";
+                message += "Win Rate: " + (session.win_rate_pct || 0) + "%\n";
+                message += "Total P&L: $" + (session.total_realized_pnl || 0).toLocaleString() + "\n";
+                message += "Final Equity: $" + (session.final_equity || 0).toLocaleString() + "\n";
+                message += "Return: " + (session.total_return_pct || 0) + "%\n";
                 if (archive.open_positions_at_archive && archive.open_positions_at_archive.length > 0) {
-                    message += '\nOpen positions at archive:\n';
-                    archive.open_positions_at_archive.forEach(pos => { message += '  • ' + pos.symbol + ' ' + pos.direction + ' @ $' + pos.entry_price + '\n'; });
+                    message += "\nOpen positions at archive:\n";
+                    archive.open_positions_at_archive.forEach(pos => { message += "  " + pos.symbol + " " + pos.direction + " @ $" + pos.entry_price + "\n"; });
                 }
                 alert(message);
             } catch (error) { alert('Error viewing archive: ' + error.message); }
         }
 
-        // =============================================================================
-        // SCAN VISIBILITY
-        // =============================================================================
         function switchScanTab(tab) {
             currentScanTab = tab;
             document.querySelectorAll('.scan-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
@@ -509,7 +529,7 @@
 
         async function refreshScan() {
             const btn = document.getElementById('scanRefreshBtn');
-            btn.disabled = true; btn.textContent = '⏳ Scanning...';
+            btn.disabled = true; btn.textContent = 'Scanning...';
             try {
                 const res = await fetch('/api/live-scan'), data = await res.json();
                 document.getElementById('liveTotalScanned').textContent = data.total_scanned || 0;
@@ -518,7 +538,7 @@
                 const list = document.getElementById('liveCandidatesList'), candidates = data.top_candidates || [];
                 if (!candidates.length) { list.innerHTML = '<div class="scan-empty">No candidates found. API may be unavailable.</div>'; return; }
                 list.innerHTML = candidates.slice(0, 10).map((c, i) => {
-                    const change = c.change_24h_pct || 0, changeClass = change >= 0 ? 'up' : 'down', changeSign = change >= 0 ? '+' : '', volM = (c.volume_24h / 1_000_000).toFixed(1);
+                    const change = c.change_24h_pct || 0, changeClass = change >= 0 ? 'up' : 'down', changeSign = change >= 0 ? '+' : '', volM = (c.volume_24h / 1000000).toFixed(1);
                     return '<div class="candidate-item"><div><div class="candidate-symbol">#' + (i+1) + ' ' + c.symbol + (i < 3 ? '<span class="watchlist-tag">WATCHLIST</span>' : '') + '</div><div class="candidate-meta">Vol: $' + volM + 'M | Range: $' + (c.low_24h?.toFixed(2) || '—') + ' - $' + (c.high_24h?.toFixed(2) || '—') + '</div></div><div style="text-align:right;"><div class="candidate-price">$' + (c.last_price?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) || '—') + '</div><div class="candidate-change ' + changeClass + '">' + changeSign + change.toFixed(2) + '%</div><div class="candidate-vol">24h change</div></div></div>';
                 }).join('');
             } catch (e) { document.getElementById('liveCandidatesList').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
