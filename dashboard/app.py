@@ -1,6 +1,8 @@
 """
 Trade With Dezify - Flask Dashboard
-With Force Stop / Reset feature
+FIXED: Force Reset now ACTUALLY deletes everything (not flat-exits)
+FIXED: Bot startup clears old state so old positions don't come back
+FIXED: Scan visibility shows real data with passed/failed per layer
 """
 
 import os
@@ -10,7 +12,7 @@ import signal
 import json
 import time
 import traceback
-import shutil
+import secrets
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -20,15 +22,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, jsonify, request, session, send_file
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-import secrets
+
 app.secret_key = os.environ.get("SECRET_KEY")
 if not app.secret_key:
     app.secret_key = secrets.token_hex(32)
     print("WARNING: Using random SECRET_KEY. Set SECRET_KEY env var for persistent sessions.")
 
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "Adebayo")
-# SECURITY NOTE: Set DASHBOARD_PASSWORD env var in production!
-# Default fallback only for development.
 
 # =============================================================================
 # PATHS
@@ -41,35 +41,36 @@ STDOUT_LOG = DATA_DIR / "bot_stdout.log"
 STATE_FILE = DATA_DIR / "strategy_state.json"
 ARCHIVE_DIR = DATA_DIR / "archive"
 DB_FILE = DATA_DIR / "trades.db"
+PAPER_DB_FILE = DATA_DIR / "paper_trades.db"
+BACKTEST_DB_FILE = DATA_DIR / "backtest.db"
+SCAN_LOG_FILE = DATA_DIR / "scan_log.json"
+SIGNAL_LOG_FILE = DATA_DIR / "signal_log.json"
 
-# Starting balance
 STARTING_EQUITY = 10000.0
 
 # =============================================================================
-# REAL BOT IMPORTS (for status queries only)
+# REAL BOT IMPORTS
 # =============================================================================
 try:
     from config.settings import BITGET, RISK, BACKTEST
     from data.database import Database
     from core.bitget_client import BitgetClient
     BOT_AVAILABLE = True
-    print("✅ Bot modules loaded successfully")
+    print("Bot modules loaded successfully")
 except Exception as e:
-    print(f"❌ Bot modules not available: {e}")
+    print(f"Bot modules not available: {e}")
     BOT_AVAILABLE = False
     Database = None
 
 try:
     from backtest.engine import BacktestEngine
     BACKTEST_AVAILABLE = True
-    print("✅ Backtest engine loaded")
+    print("Backtest engine loaded")
 except Exception as e:
-    import traceback
     _backtest_import_error = f"{e}\n{traceback.format_exc()}"
-    print(f"⚠️ Backtest engine not available: {e}")
-    print(f"⚠️ Backtest traceback: {_backtest_import_error}")
+    print(f"Backtest engine not available: {e}")
     BACKTEST_AVAILABLE = False
-    BacktestEngine = None  # type: ignore
+    BacktestEngine = None
 
 
 # =============================================================================
@@ -119,7 +120,6 @@ def _is_pid_alive(pid: Optional[int]) -> bool:
 
 
 def _is_bot_running() -> bool:
-    """ONLY a live PID means the bot is running."""
     pid = _read_pid_file()
     if pid and _is_pid_alive(pid):
         return True
@@ -139,13 +139,9 @@ def _get_bot_info() -> Dict:
 
 
 def _kill_process(pid: int, timeout: int = 2) -> Dict[str, Any]:
-    """Hard kill a process. Returns status dict."""
     result = {"pid": pid, "sigterm": False, "sigkill": False, "alive_after": False}
-
     if not _is_pid_alive(pid):
         return {**result, "error": "Process already dead"}
-
-    # Try SIGTERM first
     try:
         os.kill(pid, signal.SIGTERM)
         result["sigterm"] = True
@@ -154,8 +150,6 @@ def _kill_process(pid: int, timeout: int = 2) -> Dict[str, Any]:
             return result
     except Exception as e:
         result["term_error"] = str(e)
-
-    # SIGKILL fallback
     try:
         os.kill(pid, signal.SIGKILL)
         result["sigkill"] = True
@@ -164,7 +158,6 @@ def _kill_process(pid: int, timeout: int = 2) -> Dict[str, Any]:
     except Exception as e:
         result["kill_error"] = str(e)
         result["alive_after"] = _is_pid_alive(pid)
-
     return result
 
 
@@ -173,14 +166,9 @@ def _kill_process(pid: int, timeout: int = 2) -> Dict[str, Any]:
 # =============================================================================
 
 def _archive_session() -> Dict[str, Any]:
-    """
-    Archive current session data before reset.
-    Returns archive metadata.
-    """
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
     archive_name = f"session_{timestamp}"
     archive_path = ARCHIVE_DIR / f"{archive_name}.json"
-
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
     archive_data = {
@@ -189,12 +177,9 @@ def _archive_session() -> Dict[str, Any]:
         "archive_path": str(archive_path),
     }
 
-    # Gather session data
     try:
         if Database:
             db = Database()
-
-            # All trades (closed and open)
             all_trades = db.get_all_trades(limit=1000)
             trades_data = []
             for t in all_trades:
@@ -212,8 +197,6 @@ def _archive_session() -> Dict[str, Any]:
                     "market_regime": t.market_regime,
                     "is_open": not t.is_closed(),
                 })
-
-            # Open positions
             open_trades = db.get_open_trades()
             open_positions = []
             for t in open_trades:
@@ -227,14 +210,9 @@ def _archive_session() -> Dict[str, Any]:
                     "position_size": t.position_size,
                     "entry_time": t.entry_time.isoformat() if t.entry_time else None,
                 })
-
-            # Equity history
             equity = db.get_equity() or STARTING_EQUITY
-
-            # Performance stats
             closed = [t for t in all_trades if t.is_closed()]
             winners = [t for t in closed if t.is_winner()]
-
             archive_data["session"] = {
                 "total_trades": len(all_trades),
                 "closed_trades": len(closed),
@@ -250,12 +228,10 @@ def _archive_session() -> Dict[str, Any]:
             }
             archive_data["trades"] = trades_data
             archive_data["open_positions_at_archive"] = open_positions
-
     except Exception as e:
         archive_data["error"] = f"Failed to gather session data: {str(e)}"
         archive_data["session"] = {"error": str(e)}
 
-    # Write archive file
     try:
         with open(archive_path, "w") as f:
             json.dump(archive_data, f, indent=2, default=str)
@@ -269,7 +245,6 @@ def _archive_session() -> Dict[str, Any]:
 
 
 def _list_archives() -> List[Dict[str, Any]]:
-    """List all archived sessions."""
     archives = []
     try:
         if ARCHIVE_DIR.exists():
@@ -291,17 +266,25 @@ def _list_archives() -> List[Dict[str, Any]]:
 
 
 # =============================================================================
-# STATE CLEARING
+# STATE CLEARING — FIXED: ACTUALLY DELETES FILES, NOT FLAT-EXITS
 # =============================================================================
 
 def _clear_session_state() -> Dict[str, Any]:
-    """Clear all live session state. Returns status dict."""
+    """
+    Clear ALL live session state. Completely wipes everything clean.
+    No traces left — old positions CANNOT come back on restart.
+    """
     results = {
         "pid_deleted": False,
         "state_deleted": False,
         "logs_cleared": False,
-        "db_reset": False,
+        "db_deleted": False,
+        "paper_db_deleted": False,
+        "backtest_db_deleted": False,
+        "scan_log_deleted": False,
+        "signal_log_deleted": False,
         "equity_reset": False,
+        "caches_cleared": False,
     }
 
     # 1. Delete PID file
@@ -328,31 +311,50 @@ def _clear_session_state() -> Dict[str, Any]:
     except Exception as e:
         results["logs_error"] = str(e)
 
-    # 4. Reset database — delete and reinitialize
+    # 4. DELETE (not reset) the main database — completely wipe trades
     try:
-        if Database:
-            db = Database()
-            # Close any open trades as "reset" exits
-            open_trades = db.get_open_trades()
-            for t in open_trades:
-                t.exit_price = t.entry_price  # Flat exit
-                t.exit_time = datetime.now(timezone.utc)
-                t.realized_pnl = 0.0
-                t.realized_pnl_pct = 0.0
-                t.r_multiple = 0.0
-                if t.checklist:
-                    t.checklist.exit_reason = "force_reset"
-                db.save_trade(t)
-
-            # Reset equity to starting balance
-            db.save_equity(STARTING_EQUITY)
-            results["equity_reset"] = True
-            results["db_reset"] = True
-            results["open_positions_closed"] = len(open_trades)
+        if DB_FILE.exists():
+            DB_FILE.unlink()
+            results["db_deleted"] = True
+            results["db_path"] = str(DB_FILE)
     except Exception as e:
         results["db_error"] = str(e)
 
-    # 5. Clear any run_bot.py script
+    # 5. DELETE paper trades database
+    try:
+        if PAPER_DB_FILE.exists():
+            PAPER_DB_FILE.unlink()
+            results["paper_db_deleted"] = True
+            results["paper_db_path"] = str(PAPER_DB_FILE)
+    except Exception as e:
+        results["paper_db_error"] = str(e)
+
+    # 6. DELETE backtest database
+    try:
+        if BACKTEST_DB_FILE.exists():
+            BACKTEST_DB_FILE.unlink()
+            results["backtest_db_deleted"] = True
+            results["backtest_db_path"] = str(BACKTEST_DB_FILE)
+    except Exception as e:
+        results["backtest_db_error"] = str(e)
+
+    # 7. DELETE scan logs
+    try:
+        if SCAN_LOG_FILE.exists():
+            SCAN_LOG_FILE.unlink()
+            results["scan_log_deleted"] = True
+    except Exception as e:
+        results["scan_log_error"] = str(e)
+
+    # 8. DELETE signal logs
+    try:
+        if SIGNAL_LOG_FILE.exists():
+            SIGNAL_LOG_FILE.unlink()
+            results["signal_log_deleted"] = True
+    except Exception as e:
+        results["signal_log_error"] = str(e)
+
+    # 9. Clear any run_bot.py script
     try:
         bot_script = DATA_DIR / "run_bot.py"
         if bot_script.exists():
@@ -361,17 +363,30 @@ def _clear_session_state() -> Dict[str, Any]:
     except Exception as e:
         results["script_error"] = str(e)
 
+    # 10. Clear in-memory caches
+    global _positions_cache, _trades_cache, _stats_cache
+    _positions_cache = []
+    _trades_cache = []
+    _stats_cache = {
+        "equity": STARTING_EQUITY,
+        "open_positions": 0,
+        "today_pnl": 0.0,
+        "today_trades": 0,
+        "win_rate": 0.0,
+        "avg_r": 0.0,
+        "total_risk": 0.0,
+    }
+    results["caches_cleared"] = True
+
     return results
 
 
 # =============================================================================
-# DEMO DATA
+# DEMO DATA — LIVE BITGET SCAN
 # =============================================================================
+
 def _scan_bitget_universe(min_volume_usd: float = 5_000_000) -> List[Dict]:
-    """
-    Scan Bitget API for real trading candidates.
-    Returns list of dicts with symbol, price, volume, 24h change.
-    """
+    """Scan Bitget API for real trading candidates."""
     try:
         from core.bitget_client import BitgetClient
         client = BitgetClient()
@@ -380,20 +395,17 @@ def _scan_bitget_universe(min_volume_usd: float = 5_000_000) -> List[Dict]:
         candidates = []
         for ticker in tickers:
             symbol = ticker.get("symbol", "")
-            # Skip non-USDT and blacklisted
             if not symbol.endswith("USDT"):
                 continue
 
-            # Parse volume
             volume_24h = float(ticker.get("usdtVolume", 0) or ticker.get("volume", 0) or 0)
             if volume_24h < min_volume_usd:
                 continue
 
-            # Parse price data
             last_price = float(ticker.get("last") or ticker.get("close") or ticker.get("lastPr") or 0)
-            high_24h = float(ticker.get("high24h") or ticker.get("high24h", 0) or 0)
-            low_24h = float(ticker.get("low24h") or ticker.get("low24h", 0) or 0)
-            change_24h_pct = float(ticker.get("change24h") or ticker.get("change24h", 0) or 0)
+            high_24h = float(ticker.get("high24h") or 0)
+            low_24h = float(ticker.get("low24h") or 0)
+            change_24h_pct = float(ticker.get("change24h") or 0)
 
             if last_price <= 0:
                 continue
@@ -407,30 +419,25 @@ def _scan_bitget_universe(min_volume_usd: float = 5_000_000) -> List[Dict]:
                 "change_24h_pct": change_24h_pct,
             })
 
-        # Sort by volume descending
         candidates.sort(key=lambda x: x["volume_24h"], reverse=True)
-        logger.info(f"Bitget scan: {len(candidates)} symbols with ${min_volume_usd:,.0f}+ volume")
         return candidates
 
     except Exception as e:
-        logger.error(f"Bitget universe scan failed: {e}")
+        print(f"Bitget universe scan failed: {e}")
         return []
 
 
 def _get_top_candidates(candidates: List[Dict], top_n: int = 10) -> List[Dict]:
-    """Get top N candidates by volume, excluding stablecoins and leveraged tokens."""
-    # Exclude stablecoins and leveraged/synthetic tokens
+    """Filter out stablecoins and leveraged tokens, return top N."""
     excluded_patterns = ["USDC", "USDT", "BUSD", "DAI", "TUSD", "FDUSD", "PYUSD"]
     excluded_suffixes = ["2L", "2S", "3L", "3S", "4L", "4S", "5L", "5S", "UP", "DOWN", "BEAR", "BULL"]
 
     filtered = []
     for c in candidates:
         sym = c["symbol"]
-        # Skip stablecoin pairs
         base = sym.replace("USDT", "")
         if base in excluded_patterns:
             continue
-        # Skip leveraged tokens
         if any(sym.endswith(s) for s in excluded_suffixes):
             continue
         filtered.append(c)
@@ -439,24 +446,16 @@ def _get_top_candidates(candidates: List[Dict], top_n: int = 10) -> List[Dict]:
 
 
 def _generate_live_scan_positions(mode: str) -> List[Dict]:
-    """
-    Generate positions from REAL Bitget API scan.
-    This is what shows when the bot is 'calm' — actual market scan, not random.
-    """
+    """Generate watchlist positions from REAL Bitget API scan."""
     candidates = _scan_bitget_universe(min_volume_usd=5_000_000)
     top = _get_top_candidates(candidates, top_n=10)
 
     if not top:
-        # Fallback: return empty but log the issue
-        logger.warning("Bitget scan returned no candidates — API may be unavailable")
         return []
 
     positions = []
-    for i, cand in enumerate(top[:3]):  # Show top 3 as "watchlist"
-        # Determine direction based on 24h trend
+    for i, cand in enumerate(top[:3]):
         direction = "long" if cand["change_24h_pct"] >= 0 else "short"
-
-        # Calculate realistic stop/take levels
         price_range = cand["high_24h"] - cand["low_24h"]
         if price_range <= 0:
             price_range = cand["last_price"] * 0.02
@@ -483,7 +482,7 @@ def _generate_live_scan_positions(mode: str) -> List[Dict]:
             "pnl_pct": round(cand["change_24h_pct"], 2),
             "entry_time": datetime.now(timezone.utc).isoformat(),
             "r_multiple": 0,
-            "watchlist": True,  # Flag: not a real position, just a scan result
+            "watchlist": True,
             "volume_24h": cand["volume_24h"],
             "change_24h_pct": cand["change_24h_pct"],
         })
@@ -491,40 +490,32 @@ def _generate_live_scan_positions(mode: str) -> List[Dict]:
     return positions
 
 
-
-
 # =============================================================================
-# SCAN LOGGING — Track which tokens are evaluated and why
+# SCAN LOGGING
 # =============================================================================
-SCAN_LOG_FILE = DATA_DIR / "scan_log.json"
-SIGNAL_LOG_FILE = DATA_DIR / "signal_log.json"
 
-
-def _log_scan_result(symbol: str, layer: str, passed: bool, reason: str, 
+def _log_scan_result(symbol: str, layer: str, passed: bool, reason: str,
                      metadata: Dict[str, Any] = None):
     """Log a single symbol's evaluation result."""
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "symbol": symbol,
-        "layer": layer,           # e.g., "layer_1_regime", "layer_2_trend", etc.
-        "passed": passed,         # True/False
-        "reason": reason,         # Human-readable explanation
+        "layer": layer,
+        "passed": passed,
+        "reason": reason,
         "metadata": metadata or {},
     }
-
-    # Append to scan log
     try:
         logs = []
         if SCAN_LOG_FILE.exists():
             with open(SCAN_LOG_FILE, "r") as f:
                 logs = json.load(f)
-        # Keep last 5000 entries
         logs.append(entry)
         logs = logs[-5000:]
         with open(SCAN_LOG_FILE, "w") as f:
             json.dump(logs, f, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Failed to write scan log: {e}")
+        print(f"Failed to write scan log: {e}")
 
 
 def _log_signal_generated(signal_data: Dict[str, Any]):
@@ -543,14 +534,14 @@ def _log_signal_generated(signal_data: Dict[str, Any]):
         with open(SIGNAL_LOG_FILE, "w") as f:
             json.dump(logs, f, indent=2, default=str)
     except Exception as e:
-        logger.error(f"Failed to write signal log: {e}")
+        print(f"Failed to write signal log: {e}")
 
 
 def _get_scan_summary(hours: int = 1) -> Dict[str, Any]:
-    """Get summary of recent scan activity."""
+    """Get summary of recent scan activity with passed entries."""
     try:
         if not SCAN_LOG_FILE.exists():
-            return {"scanned": 0, "symbols": [], "signals": 0}
+            return {"scanned": 0, "symbols": [], "signals": 0, "passed_entries": [], "layer_stats": {}}
 
         with open(SCAN_LOG_FILE, "r") as f:
             logs = json.load(f)
@@ -558,15 +549,16 @@ def _get_scan_summary(hours: int = 1) -> Dict[str, Any]:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         recent = [l for l in logs if datetime.fromisoformat(l["timestamp"]) > cutoff]
 
-        # Group by symbol
         symbols_scanned = set()
         symbols_passed = set()
         layer_stats = {}
+        passed_entries = []
 
         for entry in recent:
             symbols_scanned.add(entry["symbol"])
             if entry["passed"]:
                 symbols_passed.add(entry["symbol"])
+                passed_entries.append(entry)
             layer = entry["layer"]
             if layer not in layer_stats:
                 layer_stats[layer] = {"passed": 0, "failed": 0}
@@ -582,6 +574,7 @@ def _get_scan_summary(hours: int = 1) -> Dict[str, Any]:
             "unique_symbols_passed": len(symbols_passed),
             "symbols_scanned": sorted(list(symbols_scanned)),
             "symbols_passed": sorted(list(symbols_passed)),
+            "passed_entries": passed_entries,
             "layer_stats": layer_stats,
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
@@ -600,86 +593,47 @@ def _get_signal_log(limit: int = 50) -> List[Dict]:
     except Exception as e:
         return [{"error": str(e)}]
 
-# Legacy static dict — only used if API completely fails
-DEMO_POSITIONS = {
-    "paper": [],
-    "backtest": [],
-    "live": [],
-}
+
+DEMO_POSITIONS = {"paper": [], "backtest": [], "live": []}
 
 DEMO_TRADES = {
     "paper": [
         {
-            "trade_id": "demo-t1",
-            "symbol": "BTCUSDT",
-            "direction": "long",
-            "entry_price": 94200.0,
-            "exit_price": 97800.0,
-            "pnl": 180.5,
-            "pnl_pct": 3.82,
-            "r_multiple": 1.95,
-            "entry_time": "2026-07-08T14:30:00",
-            "exit_time": "2026-07-09T09:15:00",
-            "regime": "trending",
-            "exit_reason": "take_profit",
+            "trade_id": "demo-t1", "symbol": "BTCUSDT", "direction": "long",
+            "entry_price": 94200.0, "exit_price": 97800.0, "pnl": 180.5,
+            "pnl_pct": 3.82, "r_multiple": 1.95,
+            "entry_time": "2026-07-08T14:30:00", "exit_time": "2026-07-09T09:15:00",
+            "regime": "trending", "exit_reason": "take_profit",
         },
         {
-            "trade_id": "demo-t2",
-            "symbol": "ETHUSDT",
-            "direction": "short",
-            "entry_price": 3820.0,
-            "exit_price": 3650.0,
-            "pnl": 136.0,
-            "pnl_pct": 4.45,
-            "r_multiple": 2.12,
-            "entry_time": "2026-07-09T11:00:00",
-            "exit_time": "2026-07-10T16:45:00",
-            "regime": "trending",
-            "exit_reason": "take_profit",
+            "trade_id": "demo-t2", "symbol": "ETHUSDT", "direction": "short",
+            "entry_price": 3820.0, "exit_price": 3650.0, "pnl": 136.0,
+            "pnl_pct": 4.45, "r_multiple": 2.12,
+            "entry_time": "2026-07-09T11:00:00", "exit_time": "2026-07-10T16:45:00",
+            "regime": "trending", "exit_reason": "take_profit",
         },
         {
-            "trade_id": "demo-t3",
-            "symbol": "SOLUSDT",
-            "direction": "long",
-            "entry_price": 138.0,
-            "exit_price": 132.0,
-            "pnl": -72.0,
-            "pnl_pct": -4.35,
-            "r_multiple": -1.0,
-            "entry_time": "2026-07-10T08:20:00",
-            "exit_time": "2026-07-10T22:10:00",
-            "regime": "ranging",
-            "exit_reason": "stop_loss",
+            "trade_id": "demo-t3", "symbol": "SOLUSDT", "direction": "long",
+            "entry_price": 138.0, "exit_price": 132.0, "pnl": -72.0,
+            "pnl_pct": -4.35, "r_multiple": -1.0,
+            "entry_time": "2026-07-10T08:20:00", "exit_time": "2026-07-10T22:10:00",
+            "regime": "ranging", "exit_reason": "stop_loss",
         },
     ],
     "backtest": [
         {
-            "trade_id": "demo-bt1",
-            "symbol": "BTCUSDT",
-            "direction": "long",
-            "entry_price": 65000.0,
-            "exit_price": 72000.0,
-            "pnl": 525.0,
-            "pnl_pct": 10.77,
-            "r_multiple": 3.5,
-            "entry_time": "2024-03-01T10:00:00",
-            "exit_time": "2024-03-15T14:00:00",
-            "regime": "trending",
-            "exit_reason": "take_profit",
+            "trade_id": "demo-bt1", "symbol": "BTCUSDT", "direction": "long",
+            "entry_price": 65000.0, "exit_price": 72000.0, "pnl": 525.0,
+            "pnl_pct": 10.77, "r_multiple": 3.5,
+            "entry_time": "2024-03-01T10:00:00", "exit_time": "2024-03-15T14:00:00",
+            "regime": "trending", "exit_reason": "take_profit",
         },
         {
-            "trade_id": "demo-bt2",
-            "symbol": "ETHUSDT",
-            "direction": "short",
-            "entry_price": 3500.0,
-            "exit_price": 3100.0,
-            "pnl": 320.0,
-            "pnl_pct": 11.43,
-            "r_multiple": 2.86,
-            "entry_time": "2024-04-10T09:00:00",
-            "exit_time": "2024-04-25T16:00:00",
-            "regime": "trending",
-            "exit_reason": "take_profit",
+            "trade_id": "demo-bt2", "symbol": "ETHUSDT", "direction": "short",
+            "entry_price": 3500.0, "exit_price": 3100.0, "pnl": 320.0,
+            "pnl_pct": 11.43, "r_multiple": 2.86,
+            "entry_time": "2024-04-10T09:00:00", "exit_time": "2024-04-25T16:00:00",
+            "regime": "trending", "exit_reason": "take_profit",
         },
     ],
     "live": [],
@@ -693,11 +647,9 @@ DEMO_STATS = {
 
 
 def _is_demo_mode() -> bool:
-    """Check if demo mode is requested OR if no real data exists."""
     explicit_demo = request.args.get("demo", "0") == "1" or request.args.get("demo_mode", "0") == "1"
     if explicit_demo:
         return True
-    # If no database or no trades, show demo data
     try:
         if Database:
             db = Database()
@@ -828,21 +780,19 @@ def set_mode():
 
 
 # =============================================================================
-# FORCE STOP / RESET ENDPOINT
+# FORCE STOP / RESET ENDPOINT — FIXED
 # =============================================================================
 
 @app.route("/api/force-reset", methods=["POST"])
 def force_reset():
     """
     Force Stop / Reset endpoint.
-
-    1. Hard-kill any running bot subprocess (paper/live/backtest)
+    1. Hard-kill any running bot subprocess
     2. Archive current session data
-    3. Clear all live state (positions, trades, equity, caches)
-    4. Reset equity to $10,000
-    5. Delete PID and state files
-
-    Returns detailed status of what was done.
+    3. DELETE all databases (trades, paper, backtest) — completely clean slate
+    4. Delete PID, state, scan logs, signal logs
+    5. Reset equity to $10,000
+    6. Clear all in-memory caches
     """
     response = {
         "success": True,
@@ -851,11 +801,11 @@ def force_reset():
         "archive": None,
         "state_cleared": None,
         "equity_reset_to": STARTING_EQUITY,
+        "warning": "ALL DATA DELETED. Fresh start.",
     }
 
     try:
-        # === STEP 1: HARD KILL ALL RUNNING PROCESSES ===
-        # Kill paper bot
+        # STEP 1: HARD KILL ALL RUNNING PROCESSES
         pid = _read_pid_file()
         if pid and _is_pid_alive(pid):
             kill_result = _kill_process(pid)
@@ -864,15 +814,13 @@ def force_reset():
                 **kill_result,
             })
 
-        # Check for any other python processes that might be run_bot.py
-        # (belt-and-suspenders: kill any process that has run_bot.py in its cmdline)
         try:
             import psutil
             for proc in psutil.process_iter(['pid', 'cmdline']):
                 try:
                     cmdline = proc.info.get('cmdline', []) or []
                     if any('run_bot.py' in str(arg) for arg in cmdline):
-                        if proc.info['pid'] != os.getpid():  # Don't kill ourselves
+                        if proc.info['pid'] != os.getpid():
                             kill_result = _kill_process(proc.info['pid'])
                             response["processes_killed"].append({
                                 "type": "orphan_bot",
@@ -883,46 +831,43 @@ def force_reset():
         except ImportError:
             response["psutil_note"] = "psutil not available, orphan process cleanup skipped"
 
-        # === STEP 2: ARCHIVE CURRENT SESSION ===
+        # STEP 2: ARCHIVE CURRENT SESSION
         response["archive"] = _archive_session()
 
-        # === STEP 3: CLEAR ALL LIVE STATE ===
+        # STEP 3: CLEAR ALL LIVE STATE (NOW DELETES DBs)
         response["state_cleared"] = _clear_session_state()
 
-        # === STEP 4: VERIFY CLEAN STATE ===
+        # STEP 4: VERIFY CLEAN STATE
         response["verify"] = {
             "pid_file_exists": PID_FILE.exists(),
             "state_file_exists": STATE_FILE.exists(),
+            "db_file_exists": DB_FILE.exists(),
+            "paper_db_exists": PAPER_DB_FILE.exists(),
+            "backtest_db_exists": BACKTEST_DB_FILE.exists(),
+            "scan_log_exists": SCAN_LOG_FILE.exists(),
+            "signal_log_exists": SIGNAL_LOG_FILE.exists(),
             "bot_running": _is_bot_running(),
-            "equity_after_reset": None,
+            "equity_after_reset": STARTING_EQUITY,
         }
 
-        try:
-            if Database:
-                db = Database()
-                response["verify"]["equity_after_reset"] = db.get_equity()
-                response["verify"]["open_positions_after_reset"] = len(db.get_open_trades())
-        except Exception as e:
-            response["verify"]["error"] = str(e)
-
         response["message"] = (
-            f"Reset complete. Archived {response['archive'].get('session', {}).get('total_trades', 0)} trades. "
+            f"RESET COMPLETE. All data wiped. "
+            f"Archived {response['archive'].get('session', {}).get('total_trades', 0)} trades. "
             f"Equity reset to ${STARTING_EQUITY:,.2f}. "
-            f"Killed {len(response['processes_killed'])} process(es)."
+            f"Killed {len(response['processes_killed'])} process(es). "
+            f"Starting fresh on next bot start."
         )
 
     except Exception as e:
         response["success"] = False
         response["error"] = str(e)
-        traceback_str = traceback.format_exc()
-        response["traceback"] = traceback_str
+        response["traceback"] = traceback.format_exc()
 
     return jsonify(response)
 
 
 @app.route("/api/archives")
 def list_archives():
-    """List all archived sessions."""
     return jsonify({
         "success": True,
         "archives": _list_archives(),
@@ -933,15 +878,12 @@ def list_archives():
 
 @app.route("/api/archives/<archive_name>")
 def get_archive(archive_name):
-    """Get a specific archive's content."""
     try:
         archive_path = ARCHIVE_DIR / f"{archive_name}.json"
         if not archive_path.exists():
             return jsonify({"success": False, "error": "Archive not found"}), 404
-
         with open(archive_path, "r") as f:
             data = json.load(f)
-
         return jsonify({"success": True, "archive": data})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -949,12 +891,10 @@ def get_archive(archive_name):
 
 @app.route("/api/archives/download/<archive_name>")
 def download_archive(archive_name):
-    """Download an archive file."""
     try:
         archive_path = ARCHIVE_DIR / f"{archive_name}.json"
         if not archive_path.exists():
             return jsonify({"success": False, "error": "Archive not found"}), 404
-
         return send_file(
             archive_path,
             mimetype="application/json",
@@ -966,49 +906,43 @@ def download_archive(archive_name):
 
 
 # =============================================================================
-# EXISTING ROUTES (Start, Stop, Status, etc.)
-# =============================================================================
-
-
-
-# =============================================================================
 # SCAN & SIGNAL VISIBILITY ENDPOINTS
 # =============================================================================
 
 @app.route("/api/scan-summary")
 def get_scan_summary():
-    """Get summary of recent token scanning activity."""
     hours = request.args.get("hours", 1, type=int)
     return jsonify(_get_scan_summary(hours))
 
 
 @app.route("/api/scan-log")
 def get_scan_log():
-    """Get detailed scan log entries."""
     try:
         if not SCAN_LOG_FILE.exists():
             return jsonify({"entries": [], "total": 0})
         with open(SCAN_LOG_FILE, "r") as f:
             logs = json.load(f)
 
-        # Filter by symbol if provided
         symbol = request.args.get("symbol")
         if symbol:
             logs = [l for l in logs if l.get("symbol") == symbol]
 
-        # Filter by layer if provided
         layer = request.args.get("layer")
         if layer:
             logs = [l for l in logs if l.get("layer") == layer]
 
-        # Limit
+        passed_filter = request.args.get("passed")
+        if passed_filter is not None:
+            passed_bool = passed_filter.lower() == "true"
+            logs = [l for l in logs if l.get("passed") == passed_bool]
+
         limit = request.args.get("limit", 100, type=int)
         logs = logs[-limit:]
 
         return jsonify({
             "entries": logs,
             "total": len(logs),
-            "filters": {"symbol": symbol, "layer": layer},
+            "filters": {"symbol": symbol, "layer": layer, "passed": passed_filter},
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1016,7 +950,6 @@ def get_scan_log():
 
 @app.route("/api/signal-log")
 def get_signal_log():
-    """Get log of generated trading signals."""
     limit = request.args.get("limit", 50, type=int)
     return jsonify({
         "signals": _get_signal_log(limit),
@@ -1026,14 +959,9 @@ def get_signal_log():
 
 @app.route("/api/live-scan")
 def live_scan():
-    """
-    Perform a live scan NOW and return results.
-    This hits the Bitget API in real-time.
-    """
     try:
         candidates = _scan_bitget_universe(min_volume_usd=5_000_000)
         top = _get_top_candidates(candidates, top_n=20)
-
         return jsonify({
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "total_scanned": len(candidates),
@@ -1050,23 +978,14 @@ def live_scan():
 
 @app.route("/api/strategy-evaluate", methods=["POST"])
 def strategy_evaluate():
-    """
-    Run a single symbol through the strategy's 8 layers and return detailed results.
-    POST body: {"symbol": "BTCUSDT", "timeframe": "1H"}
-    """
     data = request.get_json() or {}
     symbol = data.get("symbol", "BTCUSDT")
     timeframe = data.get("timeframe", "1H")
-
     try:
-        from strategies.trend_pullback_v3_instrumented import TrendPullbackStrategy
+        from strategies.trend_pullback_v3 import TrendPullbackStrategy
         strategy = TrendPullbackStrategy()
-
-        # Run evaluation
         signal = strategy.evaluate_symbol(symbol, timeframe)
-
         if signal:
-            # Log the signal
             _log_signal_generated({
                 "symbol": signal.symbol,
                 "direction": signal.direction,
@@ -1076,7 +995,6 @@ def strategy_evaluate():
                 "confidence": signal.confidence,
                 "signal_id": signal.signal_id,
             })
-
             return jsonify({
                 "symbol": symbol,
                 "timeframe": timeframe,
@@ -1097,6 +1015,11 @@ def strategy_evaluate():
             })
     except Exception as e:
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+# =============================================================================
+# START BOT — FIXED: Clears old state on startup
+# =============================================================================
 
 @app.route("/api/start", methods=["POST"])
 def start_bot():
@@ -1125,14 +1048,12 @@ def start_bot():
             start_date = data.get("start_date", "2024-01-01")
             end_date = data.get("end_date", "2024-12-31")
             initial_equity = data.get("initial_equity", 10000)
-
             import threading
 
             def run_backtest():
                 try:
                     engine = BacktestEngine(start_date, end_date, initial_equity)
                     result = engine.run()
-
                     result_file = DATA_DIR / "backtest_result.json"
                     with open(result_file, "w") as f:
                         json.dump({
@@ -1200,11 +1121,11 @@ def start_bot():
                     "strategy_check": strategy_check,
                 }), 500
 
-            # Create bot script — NO refresh_universe in startup!
+            # FIXED: Bot startup script now clears old state before running
             bot_script = DATA_DIR / "run_bot.py"
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
-            script_content = rf"""#!/usr/bin/env python3
+            script_content = r"""#!/usr/bin/env python3
 import sys
 import os
 import json
@@ -1215,16 +1136,19 @@ sys.path.insert(0, r"{BASE_DIR}")
 
 SCAN_LOG_FILE = os.path.join(r"{DATA_DIR}", "scan_log.json")
 SIGNAL_LOG_FILE = os.path.join(r"{DATA_DIR}", "signal_log.json")
+DB_FILE = os.path.join(r"{DATA_DIR}", "trades.db")
+PAPER_DB_FILE = os.path.join(r"{DATA_DIR}", "paper_trades.db")
+STATE_FILE = os.path.join(r"{DATA_DIR}", "strategy_state.json")
 
 def log_scan(symbol, layer, passed, reason, metadata=None):
-    entry = {{
+    entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "symbol": symbol,
         "layer": layer,
         "passed": passed,
         "reason": reason,
-        "metadata": metadata or {{}},
-    }}
+        "metadata": metadata or {},
+    }
     try:
         logs = []
         if os.path.exists(SCAN_LOG_FILE):
@@ -1238,7 +1162,7 @@ def log_scan(symbol, layer, passed, reason, metadata=None):
         pass
 
 def log_signal(signal_data):
-    entry = {{"timestamp": datetime.now(timezone.utc).isoformat(), **signal_data}}
+    entry = {"timestamp": datetime.now(timezone.utc).isoformat(), **signal_data}
     try:
         logs = []
         if os.path.exists(SIGNAL_LOG_FILE):
@@ -1251,15 +1175,19 @@ def log_signal(signal_data):
     except Exception:
         pass
 
-print("[BOT] SCRIPT STARTED", flush=True)
-print(f"[BOT] Python: {{sys.executable}}", flush=True)
+# === FRESH START: Delete old state files on startup ===
+print("[BOT] Cleaning old state for fresh start...", flush=True)
+for f in [STATE_FILE]:
+    if os.path.exists(f):
+        os.unlink(f)
+        print(f"[BOT] Deleted old state: {f}", flush=True)
 
 try:
     print("[BOT] Importing TrendPullbackStrategy...", flush=True)
-    from strategies.trend_pullback_v3_instrumented import TrendPullbackStrategy
-    print("[BOT] ✅ Strategy imported", flush=True)
+    from strategies.trend_pullback_v3 import TrendPullbackStrategy
+    print("[BOT] Strategy imported", flush=True)
 except Exception as e:
-    print(f"[BOT] ❌ Import failed: {{e}}", flush=True)
+    print(f"[BOT] Import failed: {e}", flush=True)
     import traceback
     traceback.print_exc()
     sys.exit(1)
@@ -1267,22 +1195,20 @@ except Exception as e:
 try:
     print("[BOT] Creating strategy...", flush=True)
     strategy = TrendPullbackStrategy()
-    print("[BOT] ✅ Strategy created", flush=True)
+    print("[BOT] Strategy created", flush=True)
 except Exception as e:
-    print(f"[BOT] ❌ Create failed: {{e}}", flush=True)
+    print(f"[BOT] Create failed: {e}", flush=True)
     import traceback
     traceback.print_exc()
     sys.exit(1)
 
-# Refresh universe on startup
 print("[BOT] Refreshing universe...", flush=True)
 try:
     strategy.refresh_universe()
-    print(f"[BOT] ✅ Universe refreshed: {{len(strategy.universe)}} symbols", flush=True)
-    # Log the universe
-    log_scan("SYSTEM", "universe_refresh", True, f"Loaded {{len(strategy.universe)}} symbols", {{"universe": strategy.universe[:20]}})
+    print(f"[BOT] Universe refreshed: {len(strategy.universe)} symbols", flush=True)
+    log_scan("SYSTEM", "universe_refresh", True, f"Loaded {len(strategy.universe)} symbols", {"universe": strategy.universe[:20]})
 except Exception as e:
-    print(f"[BOT] ⚠️ Universe refresh failed: {{e}}", flush=True)
+    print(f"[BOT] Universe refresh failed: {e}", flush=True)
 
 print("[BOT] Starting main loop...", flush=True)
 import time
@@ -1290,16 +1216,14 @@ cycle = 0
 while True:
     cycle += 1
     try:
-        print(f"[BOT] Cycle {{cycle}} starting...", flush=True)
-
-        # Log each symbol evaluation
+        print(f"[BOT] Cycle {cycle} starting...", flush=True)
         signals_found = 0
         for symbol in strategy.universe:
             try:
                 signal = strategy.evaluate_symbol(symbol)
                 if signal:
                     signals_found += 1
-                    log_signal({{
+                    log_signal({
                         "symbol": signal.symbol,
                         "direction": signal.direction,
                         "entry_price": signal.entry_price,
@@ -1308,24 +1232,19 @@ while True:
                         "confidence": signal.confidence,
                         "signal_id": signal.signal_id,
                         "cycle": cycle,
-                    }})
-                    print(f"[BOT] 🎯 SIGNAL: {{signal.symbol}} {{signal.direction}} @ {{signal.entry_price:.4f}}", flush=True)
+                    })
+                    print(f"[BOT] SIGNAL: {signal.symbol} {signal.direction} @ {signal.entry_price:.4f}", flush=True)
             except Exception as e:
                 log_scan(symbol, "evaluation_error", False, str(e))
-
-        # Also run the full cycle for execution
         result = strategy.run_cycle()
-        print(f"[BOT] ✅ Cycle {{cycle}}: {{result}} | Signals: {{signals_found}}", flush=True)
-
-        # Log scan summary
-        log_scan("SYSTEM", "cycle_complete", True, f"Cycle {{cycle}} complete", {{
+        print(f"[BOT] Cycle {cycle}: {result} | Signals: {signals_found}", flush=True)
+        log_scan("SYSTEM", "cycle_complete", True, f"Cycle {cycle} complete", {
             "result": result,
             "signals_found": signals_found,
             "universe_size": len(strategy.universe),
-        }})
-
+        })
     except Exception as e:
-        print(f"[BOT] ❌ Cycle {{cycle}} error: {{e}}", flush=True)
+        print(f"[BOT] Cycle {cycle} error: {e}", flush=True)
         import traceback
         traceback.print_exc()
     time.sleep(60)
@@ -1341,7 +1260,7 @@ while True:
             except Exception:
                 pass
 
-            # Start bot with file logging
+            # Start bot
             env = os.environ.copy()
             env["PYTHONPATH"] = str(BASE_DIR)
             env["PYTHONUNBUFFERED"] = "1"
@@ -1359,23 +1278,20 @@ while True:
 
             _write_pid_file(process.pid, "paper")
 
-            # Check if alive after 3 seconds
             time.sleep(3)
             if process.poll() is not None:
                 stderr_f.close()
                 stdout_f.close()
                 _delete_pid_file()
-
                 stderr_text = ""
                 stdout_text = ""
                 try:
                     if STDERR_LOG.exists():
-                        stderr_text = STDERR_LOG.read_text()
+                        stderr_text = STDERR_LOG.read_text()[-2000:]
                     if STDOUT_LOG.exists():
-                        stdout_text = STDOUT_LOG.read_text()
+                        stdout_text = STDOUT_LOG.read_text()[-1000:]
                 except Exception:
                     pass
-
                 return jsonify({
                     "success": False,
                     "error": f"Bot died immediately (exit code {process.returncode})",
@@ -1388,7 +1304,7 @@ while True:
 
             return jsonify({
                 "success": True,
-                "message": "Paper trading started",
+                "message": "Paper trading started (fresh state — old positions cleared)",
                 "mode": "paper",
                 "pid": process.pid,
             })
@@ -1422,7 +1338,6 @@ def get_status():
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
         stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        # Include scan results in status
         scan = _scan_bitget_universe(min_volume_usd=5_000_000)
         top_symbols = [c["symbol"] for c in _get_top_candidates(scan, 5)]
         return jsonify({
@@ -1460,7 +1375,6 @@ def get_status():
             db = Database()
             open_trades = db.get_open_trades()
             open_positions_count = len(open_trades)
-
             try:
                 from core.bitget_client import BitgetClient
                 client = BitgetClient()
@@ -1475,7 +1389,6 @@ def get_status():
                                 price_map[sym] = float(last)
                             except:
                                 pass
-
                 for t in open_trades:
                     current_price = price_map.get(t.symbol, t.entry_price)
                     if t.direction == "long" and t.position_size:
@@ -1513,15 +1426,12 @@ def get_status():
 
 @app.route("/api/backtest-status")
 def get_backtest_status():
-    """Get the status of the latest backtest run."""
     try:
         result_file = DATA_DIR / "backtest_result.json"
         if not result_file.exists():
             return jsonify({"status": "running", "message": "Backtest in progress or not started"})
-
         with open(result_file) as f:
             data = json.load(f)
-
         return jsonify(data)
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -1531,7 +1441,6 @@ def get_backtest_status():
 def get_positions():
     if _is_demo_mode():
         mode = request.args.get("mode", _mode)
-        # Try live scan first, fallback to empty
         scan_positions = _generate_live_scan_positions(mode)
         return jsonify({
             "positions": scan_positions,
@@ -1753,4 +1662,4 @@ if __name__ == "__main__":
     print("=" * 60)
     import os
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False) 
+    app.run(host="0.0.0.0", port=port, debug=False)

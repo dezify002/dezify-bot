@@ -6,403 +6,92 @@
     <title>Trade With Dezify - Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #0a0e1a;
-            color: #e2e8f0;
-            min-height: 100vh;
-        }
-
-        .header {
-            background: #111827;
-            border-bottom: 1px solid #1e293b;
-            padding: 1rem 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0a0e1a; color: #e2e8f0; min-height: 100vh; }
+        .header { background: #111827; border-bottom: 1px solid #1e293b; padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
         .header-left { display: flex; align-items: center; gap: 1rem; }
-
-        .logo {
-            font-size: 1.4rem;
-            font-weight: 800;
-            background: linear-gradient(90deg, #00d4aa, #00b894);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .status {
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
+        .logo { font-size: 1.4rem; font-weight: 800; background: linear-gradient(90deg, #00d4aa, #00b894); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .status { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
         .status.offline { background: rgba(239,68,68,0.15); color: #ef4444; }
         .status.online { background: rgba(34,197,94,0.15); color: #22c55e; }
         .status.live { background: rgba(239,68,68,0.15); color: #ef4444; }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
-            animation: blink 2s infinite;
-        }
-
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: blink 2s infinite; }
         @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-        .mode-bar {
-            display: flex;
-            gap: 0.5rem;
-            background: #1a1f2e;
-            padding: 0.3rem;
-            border-radius: 10px;
-            border: 1px solid #1e293b;
-        }
-
-        .mode-btn {
-            padding: 0.5rem 1.2rem;
-            border: none;
-            border-radius: 8px;
-            background: transparent;
-            color: #64748b;
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
+        .mode-bar { display: flex; gap: 0.5rem; background: #1a1f2e; padding: 0.3rem; border-radius: 10px; border: 1px solid #1e293b; }
+        .mode-btn { padding: 0.5rem 1.2rem; border: none; border-radius: 8px; background: transparent; color: #64748b; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.3s; }
         .mode-btn:hover { color: #e2e8f0; }
         .mode-btn.active { background: rgba(0,212,170,0.15); color: #00d4aa; }
         .mode-btn.live.active { background: rgba(239,68,68,0.15); color: #ef4444; }
-
-        .start-btn {
-            padding: 0.6rem 1.5rem;
-            background: linear-gradient(135deg, #00d4aa, #00b894);
-            border: none;
-            border-radius: 8px;
-            color: #0a0e1a;
-            font-size: 0.85rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
+        .start-btn { padding: 0.6rem 1.5rem; background: linear-gradient(135deg, #00d4aa, #00b894); border: none; border-radius: 8px; color: #0a0e1a; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.3s; }
         .start-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 15px rgba(0,212,170,0.3); }
         .start-btn.stop { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; }
-
         .main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .stat-card {
-            background: #1a1f2e;
-            border: 1px solid #1e293b;
-            border-radius: 12px;
-            padding: 1.2rem;
-            transition: all 0.3s;
-        }
-
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .stat-card { background: #1a1f2e; border: 1px solid #1e293b; border-radius: 12px; padding: 1.2rem; transition: all 0.3s; }
         .stat-card:hover { border-color: #00d4aa; transform: translateY(-2px); }
-
-        .stat-label {
-            font-size: 0.7rem;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-bottom: 0.5rem;
-        }
-
+        .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; }
         .stat-value { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; }
         .stat-value.green { color: #22c55e; }
         .stat-value.red { color: #ef4444; }
         .stat-sub { font-size: 0.8rem; color: #475569; margin-top: 0.25rem; }
-
-        .card {
-            background: #1a1f2e;
-            border: 1px solid #1e293b;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 1.5rem;
-        }
-
-        .card-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid #1e293b;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .card-title {
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: #94a3b8;
-        }
-
+        .card { background: #1a1f2e; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; }
+        .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; }
+        .card-title { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
         .card-body { padding: 1rem; }
-
-        .warning-banner {
-            background: rgba(239,68,68,0.1);
-            border: 1px solid #ef4444;
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            display: none;
-            align-items: center;
-            gap: 1rem;
-        }
-
+        .warning-banner { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 12px; padding: 1rem; margin-bottom: 1.5rem; display: none; align-items: center; gap: 1rem; }
         .warning-banner.show { display: flex; }
-
-        .backtest-controls {
-            display: none;
-            margin-bottom: 1.5rem;
-        }
-
+        .backtest-controls { display: none; margin-bottom: 1.5rem; }
         .backtest-controls.show { display: block; }
-
-        .control-row {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-
-        .control-group {
-            flex: 1;
-            min-width: 150px;
-        }
-
-        .control-label {
-            display: block;
-            color: #64748b;
-            font-size: 0.75rem;
-            margin-bottom: 0.25rem;
-            text-transform: uppercase;
-        }
-
-        .control-input {
-            width: 100%;
-            padding: 0.5rem;
-            background: #111827;
-            border: 1px solid #1e293b;
-            border-radius: 6px;
-            color: #e2e8f0;
-            font-size: 0.9rem;
-        }
-
-        .backtest-notice {
-            margin-top: 1rem;
-            padding: 0.75rem;
-            background: rgba(255,193,7,0.1);
-            border: 1px solid #ffc107;
-            border-radius: 6px;
-            color: #ffc107;
-            font-size: 0.85rem;
-            line-height: 1.5;
-        }
-
-        .pos-item {
-            background: #111827;
-            border: 1px solid #1e293b;
-            border-radius: 10px;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-            display: grid;
-            grid-template-columns: auto 1fr auto;
-            align-items: center;
-            gap: 1rem;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
+        .control-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+        .control-group { flex: 1; min-width: 150px; }
+        .control-label { display: block; color: #64748b; font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; }
+        .control-input { width: 100%; padding: 0.5rem; background: #111827; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; font-size: 0.9rem; }
+        .backtest-notice { margin-top: 1rem; padding: 0.75rem; background: rgba(255,193,7,0.1); border: 1px solid #ffc107; border-radius: 6px; color: #ffc107; font-size: 0.85rem; line-height: 1.5; }
+        .pos-item { background: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 1rem; cursor: pointer; transition: all 0.3s; }
         .pos-item:hover { border-color: #00d4aa; }
-
-        .pos-badge {
-            padding: 0.3rem 0.7rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-
+        .pos-badge { padding: 0.3rem 0.7rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
         .pos-badge.long { background: rgba(0,212,170,0.15); color: #00d4aa; }
         .pos-badge.short { background: rgba(239,68,68,0.15); color: #ef4444; }
-
         .pos-symbol { font-weight: 700; font-size: 1rem; color: #f1f5f9; }
-
-        .pos-detail {
-            font-size: 0.8rem;
-            color: #64748b;
-            margin-top: 0.25rem;
-        }
-
+        .pos-detail { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
         .pos-detail span { color: #94a3b8; font-family: monospace; }
-
         .pos-pnl { text-align: right; }
-
         .pos-pnl-value { font-size: 1.2rem; font-weight: 700; }
         .pos-pnl-value.green { color: #22c55e; }
         .pos-pnl-value.red { color: #ef4444; }
-
         .pos-pnl-sub { font-size: 0.75rem; color: #64748b; }
-
         table { width: 100%; border-collapse: collapse; }
-
-        th {
-            text-align: left;
-            padding: 0.75rem 1rem;
-            font-size: 0.7rem;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            border-bottom: 1px solid #1e293b;
-        }
-
-        td {
-            padding: 0.875rem 1rem;
-            font-size: 0.85rem;
-            border-bottom: 1px solid #1e293b;
-            font-family: monospace;
-        }
-
+        th { text-align: left; padding: 0.75rem 1rem; font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid #1e293b; }
+        td { padding: 0.875rem 1rem; font-size: 0.85rem; border-bottom: 1px solid #1e293b; font-family: monospace; }
         tr:hover { background: rgba(255,255,255,0.02); cursor: pointer; }
-
         .dir-long { color: #00d4aa; font-weight: 700; }
         .dir-short { color: #ef4444; font-weight: 700; }
         .pnl-pos { color: #22c55e; font-weight: 700; }
         .pnl-neg { color: #ef4444; font-weight: 700; }
-
-        .overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 200;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
-
+        .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         .overlay.show { opacity: 1; pointer-events: auto; }
-
-        .explain-panel {
-            position: fixed;
-            right: -450px;
-            top: 0;
-            width: 450px;
-            height: 100vh;
-            background: #111827;
-            border-left: 1px solid #1e293b;
-            z-index: 300;
-            transition: right 0.4s ease;
-            overflow-y: auto;
-        }
-
+        .explain-panel { position: fixed; right: -450px; top: 0; width: 450px; height: 100vh; background: #111827; border-left: 1px solid #1e293b; z-index: 300; transition: right 0.4s ease; overflow-y: auto; }
         .explain-panel.open { right: 0; }
-
-        .explain-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid #1e293b;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
+        .explain-header { padding: 1.5rem; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; }
         .explain-title { font-size: 1.1rem; font-weight: 700; }
-
-        .explain-close {
-            background: none;
-            border: none;
-            color: #64748b;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-
+        .explain-close { background: none; border: none; color: #64748b; font-size: 1.5rem; cursor: pointer; }
         .explain-body { padding: 1.5rem; }
-
-        .layer {
-            margin-bottom: 1.25rem;
-            padding: 1rem;
-            background: #1a1f2e;
-            border-radius: 10px;
-            border-left: 3px solid #22c55e;
-        }
-
-        .layer-head {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.5rem;
-        }
-
+        .layer { margin-bottom: 1.25rem; padding: 1rem; background: #1a1f2e; border-radius: 10px; border-left: 3px solid #22c55e; }
+        .layer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
         .layer-name { font-weight: 600; font-size: 0.9rem; }
-
-        .layer-status {
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 0.15rem 0.5rem;
-            border-radius: 4px;
-            background: rgba(34,197,94,0.15);
-            color: #22c55e;
-            text-transform: uppercase;
-        }
-
-        .layer-desc {
-            font-size: 0.85rem;
-            color: #94a3b8;
-            line-height: 1.6;
-        }
-
-        .layer-metrics {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 0.5rem;
-            margin-top: 0.75rem;
-        }
-
-        .metric {
-            background: #111827;
-            padding: 0.5rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-        }
-
+        .layer-status { font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(34,197,94,0.15); color: #22c55e; text-transform: uppercase; }
+        .layer-desc { font-size: 0.85rem; color: #94a3b8; line-height: 1.6; }
+        .layer-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-top: 0.75rem; }
+        .metric { background: #111827; padding: 0.5rem; border-radius: 6px; font-size: 0.75rem; }
         .metric-label { color: #64748b; margin-bottom: 0.2rem; }
         .metric-value { color: #f1f5f9; font-weight: 600; font-family: monospace; }
-
         .empty { text-align: center; padding: 3rem; color: #475569; }
         .empty-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
-
-        @media (max-width: 768px) {
-            .header { flex-wrap: wrap; gap: 1rem; }
-            .mode-bar { order: 3; width: 100%; justify-content: center; }
-            .stats { grid-template-columns: repeat(2, 1fr); }
-            .explain-panel { width: 100%; right: -100%; }
-        }
-    
-        /* Scan Visibility Styles */
+        @media (max-width: 768px) { .header { flex-wrap: wrap; gap: 1rem; } .mode-bar { order: 3; width: 100%; justify-content: center; } .stats { grid-template-columns: repeat(2, 1fr); } .explain-panel { width: 100%; right: -100%; } }
         .scan-card { background: #1a1f2e; border: 1px solid #1e293b; border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem; }
         .scan-card-header { padding: 1rem 1.25rem; border-bottom: 1px solid #1e293b; display: flex; align-items: center; justify-content: space-between; }
         .scan-card-title { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
         .scan-card-body { padding: 1rem; }
-        .scan-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; }
+        .scan-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 1px solid #1e293b; padding-bottom: 0.5rem; flex-wrap: wrap; }
         .scan-tab { padding: 0.4rem 0.8rem; border: none; background: transparent; color: #64748b; font-size: 0.8rem; font-weight: 600; cursor: pointer; border-radius: 6px; transition: all 0.2s; }
         .scan-tab:hover { color: #e2e8f0; background: rgba(255,255,255,0.03); }
         .scan-tab.active { color: #00d4aa; background: rgba(0,212,170,0.1); }
@@ -442,416 +131,194 @@
         .scan-loading { text-align: center; padding: 2rem; color: #64748b; }
         .scan-empty { text-align: center; padding: 2rem; color: #475569; font-size: 0.85rem; }
         .watchlist-tag { display: inline-block; padding: 0.15rem 0.4rem; background: rgba(0,212,170,0.1); color: #00d4aa; border-radius: 4px; font-size: 0.65rem; font-weight: 600; margin-left: 0.5rem; }
-
+        .scan-log-filters { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+        .scan-log-filter { padding: 0.3rem 0.6rem; border: 1px solid #1e293b; background: #111827; border-radius: 6px; color: #64748b; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .scan-log-filter:hover { border-color: #00d4aa; color: #e2e8f0; }
+        .scan-log-filter.active { background: rgba(0,212,170,0.1); border-color: #00d4aa; color: #00d4aa; }
+        .scan-log-entry { display: grid; grid-template-columns: 30px 1fr 1fr 2fr auto; gap: 0.75rem; align-items: center; padding: 0.5rem 0.75rem; background: #111827; border-radius: 6px; margin-bottom: 0.4rem; font-size: 0.8rem; transition: all 0.2s; }
+        .scan-log-entry:hover { background: #1a1f2e; }
+        .scan-log-pass { color: #22c55e; font-weight: 700; }
+        .scan-log-fail { color: #ef4444; font-weight: 700; }
+        .scan-log-symbol { font-weight: 600; color: #f1f5f9; font-family: monospace; }
+        .scan-log-layer { color: #94a3b8; font-size: 0.75rem; }
+        .scan-log-reason { color: #64748b; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .scan-log-time { color: #475569; font-size: 0.7rem; white-space: nowrap; }
+        .reset-result-panel { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; }
+        .reset-result-item { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.8rem; border-bottom: 1px solid #1e293b; }
+        .reset-result-item:last-child { border-bottom: none; }
+        .reset-result-label { color: #94a3b8; }
+        .reset-result-value { font-weight: 600; font-family: monospace; }
+        .reset-result-value.ok { color: #22c55e; }
+        .reset-result-value.fail { color: #ef4444; }
     </style>
-<base target="_blank">
-<base target="_blank">
-<base target="_blank">
 </head>
 <body>
-
-    <!-- Header -->
     <header class="header">
         <div class="header-left">
             <div class="logo">Trade With Dezify</div>
-            <span class="status offline" id="botStatus">
-                <span class="status-dot"></span>
-                <span id="statusText">Offline</span>
-            </span>
+            <span class="status offline" id="botStatus"><span class="status-dot"></span><span id="statusText">Offline</span></span>
         </div>
-        
         <div class="mode-bar">
             <button class="mode-btn" data-mode="backtest" onclick="setMode('backtest')">📊 Backtest</button>
             <button class="mode-btn active" data-mode="paper" onclick="setMode('paper')">📝 Paper</button>
             <button class="mode-btn live" data-mode="live" onclick="setMode('live')">🔴 Live</button>
         </div>
-        
         <div style="display:flex;gap:0.75rem;align-items:center;">
             <button class="start-btn" id="startBtn" onclick="toggleBot()">Start Bot</button>
             <button class="start-btn" id="forceResetBtn" onclick="handleForceReset()" style="background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; font-size: 0.75rem; padding: 0.6rem 1rem;">⚠️ Force Reset</button>
             <button onclick="logout()" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:1.2rem;">🚪</button>
         </div>
     </header>
-
-    <!-- Main -->
     <main class="main">
-        
-        <!-- Live Warning Banner -->
         <div class="warning-banner" id="liveWarning">
             <span style="font-size:2rem;">⚠️</span>
-            <div>
-                <div style="font-weight:700;color:#ef4444;">LIVE TRADING MODE</div>
-                <div style="color:#94a3b8;font-size:0.85rem;">Real money at risk. Trades execute on your Bitget account.</div>
-            </div>
+            <div><div style="font-weight:700;color:#ef4444;">LIVE TRADING MODE</div><div style="color:#94a3b8;font-size:0.85rem;">Real money at risk. Trades execute on your Bitget account.</div></div>
         </div>
-
-        <!-- Backtest Controls -->
         <div class="card backtest-controls" id="backtestControls">
-            <div class="card-header">
-                <div class="card-title">⚙️ Backtest Settings</div>
-            </div>
+            <div class="card-header"><div class="card-title">⚙️ Backtest Settings</div></div>
             <div class="card-body">
                 <div class="control-row">
-                    <div class="control-group">
-                        <label class="control-label">Start Date</label>
-                        <input type="date" class="control-input" id="btStart" value="2024-01-01">
-                    </div>
-                    <div class="control-group">
-                        <label class="control-label">End Date</label>
-                        <input type="date" class="control-input" id="btEnd" value="2024-12-31">
-                    </div>
-                    <div class="control-group">
-                        <label class="control-label">Initial Equity ($)</label>
-                        <input type="number" class="control-input" id="btEquity" value="10000">
-                    </div>
+                    <div class="control-group"><label class="control-label">Start Date</label><input type="date" class="control-input" id="btStart" value="2024-01-01"></div>
+                    <div class="control-group"><label class="control-label">End Date</label><input type="date" class="control-input" id="btEnd" value="2024-12-31"></div>
+                    <div class="control-group"><label class="control-label">Initial Equity ($)</label><input type="number" class="control-input" id="btEquity" value="10000"></div>
                 </div>
-                <div class="backtest-notice">
-                    ⚠️ <strong>Backtest engine not yet implemented.</strong> A full bar-by-bar historical simulation 
-                    needs to be built. For now, paper mode uses live market data with simulated fills.
-                </div>
+                <div class="backtest-notice">⚠️ <strong>Backtest engine not yet implemented.</strong> A full bar-by-bar historical simulation needs to be built. For now, paper mode uses live market data with simulated fills.</div>
             </div>
         </div>
-
-        <!-- Stats -->
         <div class="stats" id="stats">
-            <div class="stat-card">
-                <div class="stat-label">Account Equity</div>
-                <div class="stat-value" id="statEquity">$10,000.00</div>
-                <div class="stat-sub" id="equitySub">Paper trading account</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Open Positions</div>
-                <div class="stat-value" id="statPositions">0</div>
-                <div class="stat-sub">of 3 max allowed</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Today's P&L</div>
-                <div class="stat-value green" id="statPnl">+$0.00</div>
-                <div class="stat-sub" id="pnlSub">0 trades today</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Win Rate</div>
-                <div class="stat-value" id="statWinRate">0%</div>
-                <div class="stat-sub" id="winSub">0W / 0L</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Avg R-Multiple</div>
-                <div class="stat-value" id="statR">0.00R</div>
-                <div class="stat-sub">per closed trade</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Total Risk</div>
-                <div class="stat-value" id="statRisk">0.00%</div>
-                <div class="stat-sub">of 5% max allowed</div>
-            </div>
+            <div class="stat-card"><div class="stat-label">Account Equity</div><div class="stat-value" id="statEquity">$10,000.00</div><div class="stat-sub" id="equitySub">Paper trading account</div></div>
+            <div class="stat-card"><div class="stat-label">Open Positions</div><div class="stat-value" id="statPositions">0</div><div class="stat-sub">of 3 max allowed</div></div>
+            <div class="stat-card"><div class="stat-label">Today's P&L</div><div class="stat-value green" id="statPnl">+$0.00</div><div class="stat-sub" id="pnlSub">0 trades today</div></div>
+            <div class="stat-card"><div class="stat-label">Win Rate</div><div class="stat-value" id="statWinRate">0%</div><div class="stat-sub" id="winSub">0W / 0L</div></div>
+            <div class="stat-card"><div class="stat-label">Avg R-Multiple</div><div class="stat-value" id="statR">0.00R</div><div class="stat-sub">per closed trade</div></div>
+            <div class="stat-card"><div class="stat-label">Total Risk</div><div class="stat-value" id="statRisk">0.00%</div><div class="stat-sub">of 5% max allowed</div></div>
         </div>
-
-        <!-- Open Positions -->
         <div class="card">
-            <div class="card-header">
-                <div class="card-title">📈 Open Positions</div>
-                <span style="color:#64748b;font-size:0.8rem;" id="posLabel">0 active</span>
-            </div>
+            <div class="card-header"><div class="card-title">📈 Open Positions</div><span style="color:#64748b;font-size:0.8rem;" id="posLabel">0 active</span></div>
             <div class="card-body" id="positionsList">
-                <div class="empty">
-                    <div class="empty-icon">📭</div>
-                    <div>No open positions</div>
-                    <div style="font-size:0.85rem;margin-top:0.5rem;">Click "Start Bot" to begin paper trading with live data</div>
-                </div>
+                <div class="empty"><div class="empty-icon">📭</div><div>No open positions</div><div style="font-size:0.85rem;margin-top:0.5rem;">Click "Start Bot" to begin paper trading with live data</div></div>
             </div>
         </div>
-
-        <!-- Trade History -->
         <div class="card">
-            <div class="card-header">
-                <div class="card-title">📋 Trade History</div>
-                <span style="color:#64748b;font-size:0.8rem;" id="tradeLabel">0 total</span>
-            </div>
+            <div class="card-header"><div class="card-title">📋 Trade History</div><span style="color:#64748b;font-size:0.8rem;" id="tradeLabel">0 total</span></div>
             <div class="card-body" style="padding:0;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Side</th>
-                            <th>Entry</th>
-                            <th>Exit</th>
-                            <th>P&L</th>
-                            <th>R</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tradeTable">
-                        <tr>
-                            <td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <table><thead><tr><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>R</th></tr></thead><tbody id="tradeTable"><tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr></tbody></table>
             </div>
         </div>
-
-
-        <!-- Scan Visibility -->
         <div class="scan-card">
-            <div class="scan-card-header">
-                <div class="scan-card-title">🔍 Token Scan Visibility</div>
-                <button class="scan-refresh-btn" id="scanRefreshBtn" onclick="refreshScan()">🔄 Refresh</button>
-            </div>
+            <div class="scan-card-header"><div class="scan-card-title">🔍 Token Scan Visibility</div><button class="scan-refresh-btn" id="scanRefreshBtn" onclick="refreshScan()">🔄 Refresh</button></div>
             <div class="scan-card-body">
                 <div class="scan-tabs">
                     <button class="scan-tab active" onclick="switchScanTab('live')" data-tab="live">⚡ Live Scan</button>
-                    <button class="scan-tab" onclick="switchScanTab('summary')" data-tab="summary">📊 Scan Summary</button>
+                    <button class="scan-tab" onclick="switchScanTab('summary')" data-tab="summary">📊 Summary</button>
                     <button class="scan-tab" onclick="switchScanTab('signals')" data-tab="signals">🎯 Signals</button>
                     <button class="scan-tab" onclick="switchScanTab('layers')" data-tab="layers">🧩 Layer Funnel</button>
+                    <button class="scan-tab" onclick="switchScanTab('log')" data-tab="log">📋 Scan Log</button>
                 </div>
-
-                <!-- Live Scan Tab -->
                 <div class="scan-content active" id="scanTab-live">
                     <div class="scan-summary-grid">
-                        <div class="scan-stat">
-                            <div class="scan-stat-value blue" id="liveTotalScanned">—</div>
-                            <div class="scan-stat-label">Symbols Scanned</div>
-                        </div>
-                        <div class="scan-stat">
-                            <div class="scan-stat-value green" id="liveTopCandidates">—</div>
-                            <div class="scan-stat-label">Top Candidates</div>
-                        </div>
-                        <div class="scan-stat">
-                            <div class="scan-stat-value orange" id="liveScanTime">—</div>
-                            <div class="scan-stat-label">Last Scan</div>
-                        </div>
+                        <div class="scan-stat"><div class="scan-stat-value blue" id="liveTotalScanned">—</div><div class="scan-stat-label">Symbols Scanned</div></div>
+                        <div class="scan-stat"><div class="scan-stat-value green" id="liveTopCandidates">—</div><div class="scan-stat-label">Top Candidates</div></div>
+                        <div class="scan-stat"><div class="scan-stat-value orange" id="liveScanTime">—</div><div class="scan-stat-label">Last Scan</div></div>
                     </div>
-                    <div id="liveCandidatesList">
-                        <div class="scan-loading">Click Refresh to scan live market data...</div>
-                    </div>
+                    <div id="liveCandidatesList"><div class="scan-loading">Click Refresh to scan live market data...</div></div>
                 </div>
-
-                <!-- Scan Summary Tab -->
                 <div class="scan-content" id="scanTab-summary">
                     <div class="scan-summary-grid">
-                        <div class="scan-stat">
-                            <div class="scan-stat-value" id="sumTotalEvals">—</div>
-                            <div class="scan-stat-label">Total Evaluations</div>
-                        </div>
-                        <div class="scan-stat">
-                            <div class="scan-stat-value blue" id="sumUniqueScanned">—</div>
-                            <div class="scan-stat-label">Unique Scanned</div>
-                        </div>
-                        <div class="scan-stat">
-                            <div class="scan-stat-value green" id="sumUniquePassed">—</div>
-                            <div class="scan-stat-label">Passed All Layers</div>
-                        </div>
-                        <div class="scan-stat">
-                            <div class="scan-stat-value orange" id="sumSignals">—</div>
-                            <div class="scan-stat-label">Signals Generated</div>
-                        </div>
+                        <div class="scan-stat"><div class="scan-stat-value" id="sumTotalEvals">—</div><div class="scan-stat-label">Total Evaluations</div></div>
+                        <div class="scan-stat"><div class="scan-stat-value blue" id="sumUniqueScanned">—</div><div class="scan-stat-label">Unique Scanned</div></div>
+                        <div class="scan-stat"><div class="scan-stat-value green" id="sumUniquePassed">—</div><div class="scan-stat-label">Passed All Layers</div></div>
+                        <div class="scan-stat"><div class="scan-stat-value orange" id="sumSignals">—</div><div class="scan-stat-label">Signals Generated</div></div>
                     </div>
-                    <div id="scanSummaryDetails">
-                        <div class="scan-empty">Start the bot to generate scan data...</div>
-                    </div>
+                    <div id="scanSummaryDetails"><div class="scan-empty">Start the bot to generate scan data...</div></div>
                 </div>
-
-                <!-- Signals Tab -->
                 <div class="scan-content" id="scanTab-signals">
-                    <div id="signalsList">
-                        <div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div>
-                    </div>
+                    <div id="signalsList"><div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div></div>
                 </div>
-
-                <!-- Layer Funnel Tab -->
                 <div class="scan-content" id="scanTab-layers">
-                    <div id="layerFunnel">
-                        <div class="scan-empty">No layer data available. Start the bot to populate.</div>
+                    <div id="layerFunnel"><div class="scan-empty">No layer data available. Start the bot to populate.</div></div>
+                </div>
+                <div class="scan-content" id="scanTab-log">
+                    <div class="scan-log-filters">
+                        <button class="scan-log-filter active" onclick="filterScanLog('all')" data-filter="all">All</button>
+                        <button class="scan-log-filter" onclick="filterScanLog('passed')" data-filter="passed">✓ Passed</button>
+                        <button class="scan-log-filter" onclick="filterScanLog('failed')" data-filter="failed">✗ Failed</button>
                     </div>
+                    <div id="scanLogEntries"><div class="scan-empty">No scan log entries yet. Start the bot to populate.</div></div>
                 </div>
             </div>
         </div>
-
-        <!-- Archived Sessions -->
         <div class="card">
-            <div class="card-header">
-                <div class="card-title">📁 Archived Sessions</div>
-            </div>
-            <div class="card-body">
-                <ul id="archiveList" style="list-style: none; padding: 0; margin: 0;">
-                    <li style="color: #475569; padding: 1rem; text-align: center;">No archived sessions yet</li>
-                </ul>
-            </div>
+            <div class="card-header"><div class="card-title">📁 Archived Sessions</div></div>
+            <div class="card-body"><ul id="archiveList" style="list-style: none; padding: 0; margin: 0;"><li style="color: #475569; padding: 1rem; text-align: center;">No archived sessions yet</li></ul></div>
         </div>
-
     </main>
-
-    <!-- Explain Panel -->
     <div class="overlay" id="overlay" onclick="closeExplain()"></div>
     <div class="explain-panel" id="explainPanel">
-        <div class="explain-header">
-            <div class="explain-title">🔍 Why This Trade?</div>
-            <button class="explain-close" onclick="closeExplain()">×</button>
-        </div>
+        <div class="explain-header"><div class="explain-title">🔍 Why This Trade?</div><button class="explain-close" onclick="closeExplain()">×</button></div>
         <div class="explain-body" id="explainBody"></div>
     </div>
-
-    <script>
-        let botRunning = false;
-        let currentMode = 'paper';
-        let pollInterval = null;
+        <script>
+        let botRunning = false, currentMode = 'paper', pollInterval = null;
+        let currentScanTab = 'live', scanPollInterval = null, currentScanLogFilter = 'all';
 
         function setMode(mode) {
             currentMode = mode;
-            
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.mode === mode);
-            });
-            
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
             updateDashboardForMode(mode);
-            
-            fetch('/api/mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: mode })
-            });
-            
+            fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: mode }) });
             fetchBalance(mode);
         }
 
         function updateDashboardForMode(mode) {
-            const btn = document.getElementById('startBtn');
-            const equitySub = document.getElementById('equitySub');
-            const liveWarning = document.getElementById('liveWarning');
-            const backtestControls = document.getElementById('backtestControls');
-            
-            liveWarning.classList.remove('show');
-            backtestControls.classList.remove('show');
-            
-            if (mode === 'backtest') {
-                btn.textContent = '▶️ Run Backtest';
-                btn.classList.remove('stop');
-                equitySub.textContent = 'Backtest starting equity';
-                backtestControls.classList.add('show');
-                
-            } else if (mode === 'live') {
-                btn.textContent = '⚠️ Start Live Trading';
-                btn.classList.remove('stop');
-                equitySub.textContent = 'Live Bitget Account';
-                liveWarning.classList.add('show');
-                
-            } else {
-                btn.textContent = 'Start Bot';
-                btn.classList.remove('stop');
-                equitySub.textContent = 'Paper trading account';
-            }
+            const btn = document.getElementById('startBtn'), equitySub = document.getElementById('equitySub');
+            const liveWarning = document.getElementById('liveWarning'), backtestControls = document.getElementById('backtestControls');
+            liveWarning.classList.remove('show'); backtestControls.classList.remove('show');
+            if (mode === 'backtest') { btn.textContent = '▶️ Run Backtest'; btn.classList.remove('stop'); equitySub.textContent = 'Backtest starting equity'; backtestControls.classList.add('show'); }
+            else if (mode === 'live') { btn.textContent = '⚠️ Start Live Trading'; btn.classList.remove('stop'); equitySub.textContent = 'Live Bitget Account'; liveWarning.classList.add('show'); }
+            else { btn.textContent = 'Start Bot'; btn.classList.remove('stop'); equitySub.textContent = 'Paper trading account'; }
         }
 
         async function fetchBalance(mode) {
             try {
-                const res = await fetch(`/api/balance?mode=${mode}`);
-                const data = await res.json();
-                
+                const res = await fetch(`/api/balance?mode=${mode}`), data = await res.json();
                 const equityEl = document.getElementById('statEquity');
-                
-                if (data.error) {
-                    equityEl.textContent = 'Error';
-                    equityEl.classList.add('red');
-                } else {
-                    equityEl.textContent = '$' + data.balance.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    });
-                    equityEl.classList.remove('red');
-                }
-            } catch (e) {
-                console.error('Balance fetch failed:', e);
-            }
+                if (data.error) { equityEl.textContent = 'Error'; equityEl.classList.add('red'); }
+                else { equityEl.textContent = '$' + data.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); equityEl.classList.remove('red'); }
+            } catch (e) { console.error('Balance fetch failed:', e); }
         }
 
         async function toggleBot() {
-            const btn = document.getElementById('startBtn');
-            const status = document.getElementById('botStatus');
-            const statusText = document.getElementById('statusText');
-            
+            const btn = document.getElementById('startBtn'), status = document.getElementById('botStatus'), statusText = document.getElementById('statusText');
             if (!botRunning) {
-                // START
                 try {
-                    const res = await fetch('/api/start', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            mode: currentMode,
-                            start_date: document.getElementById('btStart')?.value,
-                            end_date: document.getElementById('btEnd')?.value,
-                            initial_equity: parseFloat(document.getElementById('btEquity')?.value || 10000)
-                        })
-                    });
+                    const res = await fetch('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: currentMode, start_date: document.getElementById('btStart')?.value, end_date: document.getElementById('btEnd')?.value, initial_equity: parseFloat(document.getElementById('btEquity')?.value || 10000) }) });
                     const data = await res.json();
-                    
-                    if (!data.success) {
-                        alert(data.error || 'Failed to start bot');
-                        return;
-                    }
-                    
-                    botRunning = true;
-                    btn.textContent = '⏹ Stop Bot';
-                    btn.classList.add('stop');
-                    
-                    if (currentMode === 'live') {
-                        status.className = 'status live';
-                        statusText.textContent = 'LIVE TRADING';
-                    } else if (currentMode === 'paper') {
-                        status.className = 'status online';
-                        statusText.textContent = 'Paper Trading';
-                    } else {
-                        status.className = 'status online';
-                        statusText.textContent = 'Backtesting';
-                    }
-                    
-                    if (data.warning) {
-                        console.warn(data.warning);
-                    }
-                    
+                    if (!data.success) { alert(data.error || 'Failed to start bot'); return; }
+                    botRunning = true; btn.textContent = '⏹ Stop Bot'; btn.classList.add('stop');
+                    if (currentMode === 'live') { status.className = 'status live'; statusText.textContent = 'LIVE TRADING'; }
+                    else if (currentMode === 'paper') { status.className = 'status online'; statusText.textContent = 'Paper Trading'; }
+                    else { status.className = 'status online'; statusText.textContent = 'Backtesting'; }
                     startPolling();
-                    
-                } catch (e) {
-                    alert('Error starting bot: ' + e.message);
-                }
-                
+                } catch (e) { alert('Error starting bot: ' + e.message); }
             } else {
-                // STOP
-                try {
-                    await fetch('/api/stop', { method: 'POST' });
-                } catch (e) {}
-                
-                botRunning = false;
-                updateBotButtonState();
-                stopPolling();
+                try { await fetch('/api/stop', { method: 'POST' }); } catch (e) {}
+                botRunning = false; updateBotButtonState(); stopPolling();
             }
         }
 
-        function startPolling() {
-            updateDashboard();
-            pollInterval = setInterval(updateDashboard, 3000);
-        }
-
-        function stopPolling() {
-            clearInterval(pollInterval);
-        }
+        function startPolling() { updateDashboard(); pollInterval = setInterval(updateDashboard, 3000); }
+        function stopPolling() { clearInterval(pollInterval); }
 
         async function updateDashboard() {
             try {
-                const res = await fetch(`/api/status?mode=${currentMode}`);
-                const data = await res.json();
+                const res = await fetch(`/api/status?mode=${currentMode}`), data = await res.json();
                 updateStats(data);
-                
-                // Update positions
-                const posRes = await fetch('/api/positions');
-                const posData = await posRes.json();
+                const posRes = await fetch('/api/positions'), posData = await posRes.json();
                 renderPositions(posData.positions || []);
-                
-                // Update trades
-                const tradeRes = await fetch('/api/trades');
-                const tradeData = await tradeRes.json();
+                const tradeRes = await fetch('/api/trades'), tradeData = await tradeRes.json();
                 renderTrades(tradeData.trades || []);
-                
-            } catch (e) {
-                console.error('Dashboard update error:', e);
-            }
+            } catch (e) { console.error('Dashboard update error:', e); }
         }
 
         function updateStats(data) {
@@ -860,634 +327,278 @@
             document.getElementById('statPnl').className = 'stat-value ' + (data.today_pnl >= 0 ? 'green' : 'red');
             document.getElementById('pnlSub').textContent = (data.today_trades || 0) + ' trades today';
             document.getElementById('statWinRate').textContent = (data.win_rate || 0) + '%';
-            document.getElementById('winSub').textContent = 'Check history for details';
             document.getElementById('statR').textContent = (data.avg_r || 0).toFixed(2) + 'R';
             document.getElementById('statRisk').textContent = (data.total_risk || 0).toFixed(2) + '%';
-            
-            // Update equity from status if available
-            if (data.equity) {
-                document.getElementById('statEquity').textContent = '$' + data.equity.toLocaleString('en-US', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                });
-            }
+            if (data.equity) document.getElementById('statEquity').textContent = '$' + data.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
         function renderPositions(positions) {
             const container = document.getElementById('positionsList');
             document.getElementById('statPositions').textContent = positions.length;
             document.getElementById('posLabel').textContent = positions.length + ' active';
-            
-            if (!positions.length) {
-                container.innerHTML = `
-                    <div class="empty">
-                        <div class="empty-icon">📭</div>
-                        <div>No open positions</div>
-                        <div style="font-size:0.85rem;margin-top:0.5rem;">${botRunning ? 'Scanning for signals...' : 'Click Start Bot to begin'}</div>
-                    </div>`;
-                return;
-            }
-            
-            container.innerHTML = positions.map(p => `
-                <div class="pos-item" onclick="showExplain('${p.id}')">
-                    <div class="pos-badge ${p.direction}">${p.direction === 'long' ? '▲' : '▼'} ${p.direction.toUpperCase()}</div>
-                    <div>
-                        <div class="pos-symbol">${p.symbol}</div>
-                        <div class="pos-detail">
-                            Entry: <span>$${p.entry_price}</span> | 
-                            SL: <span style="color:#ef4444">$${p.stop_loss}</span> | 
-                            TP: <span style="color:#22c55e">$${p.take_profit}</span>
-                        </div>
-                        <div class="pos-detail">
-                            Size: <span>${p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size}</span> | 
-                            Lev: <span>${p.leverage}x</span> | 
-                            Risk: <span>${(p.risk_pct * 100).toFixed(2)}%</span>
-                        </div>
-                    </div>
-                    <div class="pos-pnl">
-                        <div class="pos-pnl-value ${p.pnl_pct >= 0 ? 'green' : 'red'}">
-                            ${p.pnl_pct >= 0 ? '+' : ''}${p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct}%
-                        </div>
-                        <div class="pos-pnl-sub">Unrealized</div>
-                    </div>
-                </div>
-            `).join('');
+            if (!positions.length) { container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No open positions</div><div style="font-size:0.85rem;margin-top:0.5rem;">' + (botRunning ? 'Scanning for signals...' : 'Click Start Bot to begin') + '</div></div>'; return; }
+            container.innerHTML = positions.map(p => '<div class="pos-item" onclick="showExplain(\'' + p.id + '\')"><div class="pos-badge ' + p.direction + '">' + (p.direction === 'long' ? '▲' : '▼') + ' ' + p.direction.toUpperCase() + '</div><div><div class="pos-symbol">' + p.symbol + '</div><div class="pos-detail">Entry: <span>$' + p.entry_price + '</span> | SL: <span style="color:#ef4444">$' + p.stop_loss + '</span> | TP: <span style="color:#22c55e">$' + p.take_profit + '</span></div><div class="pos-detail">Size: <span>' + (p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size) + '</span> | Lev: <span>' + p.leverage + 'x</span> | Risk: <span>' + (p.risk_pct * 100).toFixed(2) + '%</span></div></div><div class="pos-pnl"><div class="pos-pnl-value ' + (p.pnl_pct >= 0 ? 'green' : 'red') + '">' + (p.pnl_pct >= 0 ? '+' : '') + (p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct) + '%</div><div class="pos-pnl-sub">Unrealized</div></div></div>').join('');
         }
 
         function renderTrades(trades) {
             const tbody = document.getElementById('tradeTable');
             document.getElementById('tradeLabel').textContent = trades.length + ' total';
-            
-            if (!trades.length) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr>`;
-                return;
-            }
-            
-            tbody.innerHTML = trades.map(t => `
-                <tr onclick="showExplain('${t.trade_id}')">
-                    <td style="font-weight:600;">${t.symbol}</td>
-                    <td class="${t.direction === 'long' ? 'dir-long' : 'dir-short'}">${t.direction === 'long' ? '▲ LONG' : '▼ SHORT'}</td>
-                    <td>$${t.entry_price}</td>
-                    <td>${t.exit_price ? '$' + t.exit_price : '—'}</td>
-                    <td class="${t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg'}">${t.pnl >= 0 ? '+' : ''}$${t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl}</td>
-                    <td class="${t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg'}">${t.r_multiple >= 0 ? '+' : ''}${t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple}R</td>
-                </tr>
-            `).join('');
+            if (!trades.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr>'; return; }
+            tbody.innerHTML = trades.map(t => '<tr onclick="showExplain(\'' + t.trade_id + '\')"><td style="font-weight:600;">' + t.symbol + '</td><td class="' + (t.direction === 'long' ? 'dir-long' : 'dir-short') + '">' + (t.direction === 'long' ? '▲ LONG' : '▼ SHORT') + '</td><td>$' + t.entry_price + '</td><td>' + (t.exit_price ? '$' + t.exit_price : '—') + '</td><td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl) + '</td><td class="' + (t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.r_multiple >= 0 ? '+' : '') + (t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple) + 'R</td></tr>').join('');
         }
 
         async function showExplain(tradeId) {
             document.getElementById('overlay').classList.add('show');
             document.getElementById('explainPanel').classList.add('open');
-            
             try {
-                const res = await fetch('/api/trade/' + tradeId);
-                const data = await res.json();
+                const res = await fetch('/api/trade/' + tradeId), data = await res.json();
                 renderExplain(data);
-            } catch (e) {
-                document.getElementById('explainBody').innerHTML = `
-                    <div class="empty">
-                        <div class="empty-icon">❌</div>
-                        <div>Error loading trade details</div>
-                        <div style="font-size:0.85rem;margin-top:0.5rem;">${e.message}</div>
-                    </div>`;
-            }
+            } catch (e) { document.getElementById('explainBody').innerHTML = '<div class="empty"><div class="empty-icon">❌</div><div>Error loading trade details</div><div style="font-size:0.85rem;margin-top:0.5rem;">' + e.message + '</div></div>'; }
         }
 
         function renderExplain(data) {
-            if (data.error) {
-                document.getElementById('explainBody').innerHTML = `
-                    <div class="empty">
-                        <div class="empty-icon">❌</div>
-                        <div>${data.error}</div>
-                    </div>`;
-                return;
-            }
-            
-            const layers = data.layers || {};
-            const symbol = data.symbol || 'Unknown';
-            const direction = data.direction || 'long';
-            
-            let html = `
-                <div style="margin-bottom:1.5rem;padding:1rem;background:#1a1f2e;border-radius:10px;">
-                    <div style="font-size:1.2rem;font-weight:700;">${symbol} ${direction.toUpperCase()}</div>
-                    <div style="color:#64748b;font-size:0.85rem;">ID: ${data.trade_id || 'N/A'}</div>
-                </div>
-            `;
-            
-            const layerOrder = ['layer_1', 'layer_2', 'layer_3', 'layer_4', 'layer_5', 'layer_6', 'layer_7', 'layer_8'];
-            const layerIcons = ['🌊', '📈', '🎯', '⚡', '🛡️', '🔧', '📋', '📊'];
-            const layerNames = ['Market Regime', 'Trend Analysis', 'Pullback Detection', 'Entry Trigger', 
-                              'Risk Management', 'Execution', 'Trade Management', 'Performance Review'];
-            
-            layerOrder.forEach((key, i) => {
-                const l = layers[key];
-                if (!l) return;
-                html += `
-                    <div class="layer">
-                        <div class="layer-head">
-                            <div class="layer-name">${layerIcons[i]} Layer ${i+1}: ${layerNames[i]}</div>
-                            <span class="layer-status">✓ ${l.passed ? 'Passed' : 'Failed'}</span>
-                        </div>
-                        <div class="layer-desc">${l.explanation || ''}</div>
-                        ${renderMetrics(l)}
-                    </div>
-                `;
-            });
-            
+            if (data.error) { document.getElementById('explainBody').innerHTML = '<div class="empty"><div class="empty-icon">❌</div><div>' + data.error + '</div></div>'; return; }
+            const layers = data.layers || {}, symbol = data.symbol || 'Unknown', direction = data.direction || 'long';
+            let html = '<div style="margin-bottom:1.5rem;padding:1rem;background:#1a1f2e;border-radius:10px;"><div style="font-size:1.2rem;font-weight:700;">' + symbol + ' ' + direction.toUpperCase() + '</div><div style="color:#64748b;font-size:0.85rem;">ID: ' + (data.trade_id || 'N/A') + '</div></div>';
+            const layerOrder = ['layer_1','layer_2','layer_3','layer_4','layer_5','layer_6','layer_7','layer_8'];
+            const layerIcons = ['🌊','📈','🎯','⚡','🛡️','🔧','📋','📊'];
+            const layerNames = ['Market Regime','Trend Analysis','Pullback Detection','Entry Trigger','Risk Management','Execution','Trade Management','Performance Review'];
+            layerOrder.forEach((key, i) => { const l = layers[key]; if (!l) return; html += '<div class="layer"><div class="layer-head"><div class="layer-name">' + layerIcons[i] + ' Layer ' + (i+1) + ': ' + layerNames[i] + '</div><span class="layer-status">✓ ' + (l.passed ? 'Passed' : 'Failed') + '</span></div><div class="layer-desc">' + (l.explanation || '') + '</div>' + renderMetrics(l) + '</div>'; });
             document.getElementById('explainBody').innerHTML = html;
         }
 
         function renderMetrics(data) {
-            const skip = ['passed', 'explanation', 'name'];
+            const skip = ['passed','explanation','name'];
             const metrics = Object.entries(data).filter(([k]) => !skip.includes(k));
             if (!metrics.length) return '';
-            
-            return `<div class="layer-metrics">` + metrics.slice(0, 4).map(([k, v]) => `
-                <div class="metric">
-                    <div class="metric-label">${k.replace(/_/g, ' ').toUpperCase()}</div>
-                    <div class="metric-value">${typeof v === 'number' ? (v.toFixed ? v.toFixed(2) : v) : v}</div>
-                </div>
-            `).join('') + `</div>`;
+            return '<div class="layer-metrics">' + metrics.slice(0,4).map(([k,v]) => '<div class="metric"><div class="metric-label">' + k.replace(/_/g,' ').toUpperCase() + '</div><div class="metric-value">' + (typeof v === 'number' ? (v.toFixed ? v.toFixed(2) : v) : v) + '</div></div>').join('') + '</div>';
         }
 
-        function closeExplain() {
-            document.getElementById('overlay').classList.remove('show');
-            document.getElementById('explainPanel').classList.remove('open');
-        }
+        function closeExplain() { document.getElementById('overlay').classList.remove('show'); document.getElementById('explainPanel').classList.remove('open'); }
+        async function logout() { if (botRunning) await fetch('/api/stop', { method: 'POST' }); await fetch('/api/logout', { method: 'POST' }); window.location.reload(); }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeExplain(); });
 
-        async function logout() {
-            if (botRunning) {
-                await fetch('/api/stop', { method: 'POST' });
-            }
-            await fetch('/api/logout', { method: 'POST' });
-            window.location.reload();
-        }
-
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') closeExplain();
-        });
-
-        // CRITICAL FIX: Sync bot state from backend on page load
-        // This prevents "stopped" default when refreshing
         async function syncBotState() {
-            try {
-                const res = await fetch('/api/status?mode=' + currentMode);
-                const data = await res.json();
-
-                // Sync botRunning with REAL backend state
-                botRunning = data.running === true;
-
-                // Update UI immediately
-                updateBotButtonState();
-
-                console.log('Bot state synced:', botRunning ? 'RUNNING' : 'STOPPED');
-            } catch (e) {
-                console.error('Failed to sync bot state:', e);
-            }
+            try { const res = await fetch('/api/status?mode=' + currentMode), data = await res.json(); botRunning = data.running === true; updateBotButtonState(); console.log('Bot state synced:', botRunning ? 'RUNNING' : 'STOPPED'); }
+            catch (e) { console.error('Failed to sync bot state:', e); }
         }
 
-        /**
-         * Update Start/Stop button based on botRunning variable
-         */
         function updateBotButtonState() {
-            const btn = document.getElementById('startBtn');
-            const status = document.getElementById('botStatus');
-            const statusText = document.getElementById('statusText');
-
+            const btn = document.getElementById('startBtn'), status = document.getElementById('botStatus'), statusText = document.getElementById('statusText');
             if (botRunning) {
-                btn.textContent = '⏹ Stop Bot';
-                btn.classList.add('stop');
+                btn.textContent = '⏹ Stop Bot'; btn.classList.add('stop');
+                if (currentMode === 'live') { status.className = 'status live'; statusText.textContent = 'LIVE TRADING'; }
+                else if (currentMode === 'paper') { status.className = 'status online'; statusText.textContent = 'Paper Trading'; }
+                else { status.className = 'status online'; statusText.textContent = 'Backtesting'; }
+            } else { updateDashboardForMode(currentMode); status.className = 'status offline'; statusText.textContent = 'Offline'; }
+        }
 
-                if (currentMode === 'live') {
-                    status.className = 'status live';
-                    statusText.textContent = 'LIVE TRADING';
-                } else if (currentMode === 'paper') {
-                    status.className = 'status online';
-                    statusText.textContent = 'Paper Trading';
+        // =============================================================================
+        // FORCE STOP / RESET — FIXED: Matches app.py response keys exactly
+        // =============================================================================
+        async function handleForceReset() {
+            const confirmed = confirm("⚠️ FORCE STOP / RESET\n\nThis will:\n• Hard-kill any running bot processes\n• Archive your current trade history\n• DELETE all databases (trades, paper, backtest)\n• Delete scan logs, signal logs, and state files\n• Reset account equity to $10,000\n\nYour trade history will be saved to an archive file before clearing.\n\nContinue?");
+            if (!confirmed) return;
+            const resetBtn = document.getElementById('forceResetBtn');
+            if (resetBtn) { resetBtn.disabled = true; resetBtn.textContent = 'Resetting...'; }
+            try {
+                const response = await fetch('/api/force-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                const result = await response.json();
+                if (result.success) {
+                    let message = "✅ Reset Complete\n\n";
+                    if (result.processes_killed && result.processes_killed.length > 0) {
+                        message += "Processes stopped:\n";
+                        result.processes_killed.forEach(p => { const killed = p.sigterm || p.sigkill; message += "  • PID " + p.pid + ": " + (killed ? '✓ killed' : '✗ failed') + "\n"; });
+                        message += "\n";
+                    } else { message += "No running processes found.\n\n"; }
+                    if (result.archive && result.archive.saved) {
+                        const session = result.archive.session || {};
+                        message += "📁 Archive saved:\n";
+                        message += "  File: " + (result.archive.archive_name || 'N/A') + ".json\n";
+                        message += "  Trades archived: " + (session.total_trades || 0) + "\n";
+                        message += "  Final equity: $" + (session.final_equity || 0).toLocaleString() + "\n";
+                        message += "  Total P&L: $" + (session.total_realized_pnl || 0).toLocaleString() + "\n";
+                        message += "  Win rate: " + (session.win_rate_pct || 0) + "%\n\n";
+                    }
+                    if (result.state_cleared) {
+                        const sc = result.state_cleared;
+                        message += "State cleared:\n";
+                        message += "  • PID file: " + (sc.pid_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Strategy state file: " + (sc.state_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Logs cleared: " + (sc.logs_cleared ? '✓' : '✗') + "\n";
+                        message += "  • Trades DB deleted: " + (sc.db_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Paper DB deleted: " + (sc.paper_db_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Backtest DB deleted: " + (sc.backtest_db_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Scan log deleted: " + (sc.scan_log_deleted ? '✓' : '✗') + "\n";
+                        message += "  • Signal log deleted: " + (sc.signal_log_deleted ? '✓' : '✗') + "\n";
+                        message += "  • In-memory caches: " + (sc.caches_cleared ? '✓' : '✗') + "\n";
+                    }
+                    if (result.verify) {
+                        const v = result.verify;
+                        message += "\n🔍 Verification:\n";
+                        message += "  • DB file exists: " + (v.db_file_exists ? '⚠️ YES (unexpected)' : '✓ NO (clean)') + "\n";
+                        message += "  • State file exists: " + (v.state_file_exists ? '⚠️ YES' : '✓ NO') + "\n";
+                        message += "  • Bot running: " + (v.bot_running ? '⚠️ YES' : '✓ NO') + "\n";
+                    }
+                    message += "\n💰 Account equity reset to: $10,000.00";
+                    message += "\n🚀 Start a fresh session with your new strategy.";
+                    alert(message);
+                    botRunning = false; updateBotButtonState(); await updateDashboard(); await loadArchives();
                 } else {
-                    status.className = 'status online';
-                    statusText.textContent = 'Backtesting';
+                    let errorMsg = "❌ Reset Failed\n\nError: " + (result.error || 'Unknown error') + "\n";
+                    if (result.traceback) errorMsg += "\nDetails: " + result.traceback.substring(0, 500);
+                    alert(errorMsg);
                 }
-            } else {
-                updateDashboardForMode(currentMode);
-                status.className = 'status offline';
-                statusText.textContent = 'Offline';
-            }
+            } catch (error) { alert("❌ Network error during reset: " + error.message); }
+            finally { if (resetBtn) { resetBtn.disabled = false; resetBtn.textContent = '⚠️ Force Reset'; } }
         }
 
-        // Initialize — sync state FIRST, then fetch balance
-        syncBotState();
-        fetchBalance('paper');
-    </script>
-    <script>
-// =============================================================================
-// FORCE STOP / RESET HANDLER
-// =============================================================================
-
-async function handleForceReset() {
-    const confirmed = confirm(
-        "⚠️ FORCE STOP / RESET\n\n" +
-        "This will:\n" +
-        "• Hard-kill any running bot processes\n" +
-        "• Archive your current trade history\n" +
-        "• Clear all open positions\n" +
-        "• Reset account equity to $10,000\n\n" +
-        "Your trade history will be saved to an archive file before clearing.\n\n" +
-        "Continue?"
-    );
-
-    if (!confirmed) return;
-
-    const resetBtn = document.getElementById('forceResetBtn');
-    if (resetBtn) {
-        resetBtn.disabled = true;
-        resetBtn.textContent = 'Resetting...';
-    }
-
-    try {
-        const response = await fetch('/api/force-reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            let message = "✅ Reset Complete\n\n";
-
-            if (result.processes_killed && result.processes_killed.length > 0) {
-                message += "Processes stopped:\n";
-                result.processes_killed.forEach(p => {
-                    message += `  • PID ${p.pid}: killed=${!p.alive_after}\n`;
+        async function loadArchives() {
+            const archiveList = document.getElementById('archiveList');
+            if (!archiveList) return;
+            archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">Loading archives...</li>';
+            try {
+                const response = await fetch('/api/archives'), result = await response.json();
+                if (!result.success || !result.archives || result.archives.length === 0) { archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">No archived sessions yet</li>'; return; }
+                archiveList.innerHTML = '';
+                result.archives.forEach(archive => {
+                    const li = document.createElement('li');
+                    li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid #1e293b;';
+                    const date = new Date(archive.created_at), formattedDate = date.toLocaleString(), sizeKB = (archive.size_bytes / 1024).toFixed(1);
+                    li.innerHTML = '<div><div style="font-weight:600;font-size:0.85rem;">' + archive.name + '</div><div style="font-size:0.75rem;color:#64748b;">' + formattedDate + ' • ' + sizeKB + ' KB</div></div><div style="display:flex;gap:0.5rem;"><button onclick="viewArchive(\'' + archive.name + '\')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button><a href="/api/archives/download/' + archive.name + '" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a></div>';
+                    archiveList.appendChild(li);
                 });
-                message += "\n";
-            } else {
-                message += "No running processes found.\n\n";
-            }
+            } catch (error) { archiveList.innerHTML = '<li style="color:#ef4444;padding:1rem;text-align:center;">Error loading archives: ' + error.message + '</li>'; }
+        }
 
-            if (result.archive && result.archive.saved) {
-                const session = result.archive.session || {};
-                message += "📁 Archive saved:\n";
-                message += `  File: ${result.archive.archive_name}.json\n`;
-                message += `  Trades archived: ${session.total_trades || 0}\n`;
-                message += `  Final equity: $${(session.final_equity || 0).toLocaleString()}\n`;
-                message += `  Total P&L: $${(session.total_realized_pnl || 0).toLocaleString()}\n`;
-                message += `  Win rate: ${session.win_rate_pct || 0}%\n\n`;
-            }
-
-            if (result.state_cleared) {
-                message += "State cleared:\n";
-                message += `  • PID file: ${result.state_cleared.pid_deleted ? '✓' : '✗'}\n`;
-                message += `  • Strategy state: ${result.state_cleared.state_deleted ? '✓' : '✗'}\n`;
-                message += `  • Logs cleared: ${result.state_cleared.logs_cleared ? '✓' : '✗'}\n`;
-                message += `  • DB reset: ${result.state_cleared.db_reset ? '✓' : '✗'}\n`;
-                message += `  • Equity reset: ${result.state_cleared.equity_reset ? '✓' : '✗'}\n`;
-                if (result.state_cleared.open_positions_closed) {
-                    message += `  • Open positions closed: ${result.state_cleared.open_positions_closed}\n`;
+        async function viewArchive(archiveName) {
+            try {
+                const response = await fetch('/api/archives/' + archiveName), result = await response.json();
+                if (!result.success) { alert('Error: ' + result.error); return; }
+                const archive = result.archive, session = archive.session || {};
+                let message = '📁 Archive: ' + archiveName + '\n\nArchived: ' + archive.archived_at + '\n';
+                message += 'Trades: ' + (session.total_trades || 0) + '\n';
+                message += 'Closed: ' + (session.closed_trades || 0) + '\n';
+                message += 'Winners: ' + (session.winners || 0) + ' | Losers: ' + (session.losers || 0) + '\n';
+                message += 'Win Rate: ' + (session.win_rate_pct || 0) + '%\n';
+                message += 'Total P&L: $' + (session.total_realized_pnl || 0).toLocaleString() + '\n';
+                message += 'Final Equity: $' + (session.final_equity || 0).toLocaleString() + '\n';
+                message += 'Return: ' + (session.total_return_pct || 0) + '%\n';
+                if (archive.open_positions_at_archive && archive.open_positions_at_archive.length > 0) {
+                    message += '\nOpen positions at archive:\n';
+                    archive.open_positions_at_archive.forEach(pos => { message += '  • ' + pos.symbol + ' ' + pos.direction + ' @ $' + pos.entry_price + '\n'; });
                 }
-            }
-
-            message += `\n💰 Account equity reset to: $10,000.00`;
-            message += `\n🚀 You can now start a fresh session with your new strategy.`;
-
-            alert(message);
-
-            // Refresh the dashboard
-            botRunning = false;
-            updateBotButtonState();
-            await updateDashboard();
-            await loadArchives();
-
-        } else {
-            let errorMsg = "❌ Reset Failed\n\n";
-            errorMsg += `Error: ${result.error || 'Unknown error'}\n`;
-            if (result.traceback) {
-                errorMsg += `\nDetails: ${result.traceback.substring(0, 500)}`;
-            }
-            alert(errorMsg);
+                alert(message);
+            } catch (error) { alert('Error viewing archive: ' + error.message); }
         }
 
-    } catch (error) {
-        alert(`❌ Network error during reset: ${error.message}`);
-    } finally {
-        if (resetBtn) {
-            resetBtn.disabled = false;
-            resetBtn.textContent = '⚠️ Force Reset';
-        }
-    }
-}
-
-// --- Archive Viewer ---
-async function loadArchives() {
-    const archiveList = document.getElementById('archiveList');
-    if (!archiveList) return;
-
-    archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">Loading archives...</li>';
-
-    try {
-        const response = await fetch('/api/archives');
-        const result = await response.json();
-
-        if (!result.success || !result.archives || result.archives.length === 0) {
-            archiveList.innerHTML = '<li style="color:#64748b;padding:1rem;text-align:center;">No archived sessions yet</li>';
-            return;
+        // =============================================================================
+        // SCAN VISIBILITY
+        // =============================================================================
+        function switchScanTab(tab) {
+            currentScanTab = tab;
+            document.querySelectorAll('.scan-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+            document.querySelectorAll('.scan-content').forEach(c => c.classList.toggle('active', c.id === 'scanTab-' + tab));
+            if (tab === 'live') refreshScan();
+            if (tab === 'summary') loadScanSummary();
+            if (tab === 'signals') loadSignalLog();
+            if (tab === 'layers') loadLayerFunnel();
+            if (tab === 'log') loadScanLog();
         }
 
-        archiveList.innerHTML = '';
-        result.archives.forEach(archive => {
-            const li = document.createElement('li');
-            li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid #1e293b;';
-
-            const date = new Date(archive.created_at);
-            const formattedDate = date.toLocaleString();
-            const sizeKB = (archive.size_bytes / 1024).toFixed(1);
-
-            li.innerHTML = `
-                <div>
-                    <div style="font-weight:600;font-size:0.85rem;">${archive.name}</div>
-                    <div style="font-size:0.75rem;color:#64748b;">${formattedDate} • ${sizeKB} KB</div>
-                </div>
-                <div style="display:flex;gap:0.5rem;">
-                    <button onclick="viewArchive('${archive.name}')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button>
-                    <a href="/api/archives/download/${archive.name}" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a>
-                </div>
-            `;
-            archiveList.appendChild(li);
-        });
-
-    } catch (error) {
-        archiveList.innerHTML = `<li style="color:#ef4444;padding:1rem;text-align:center;">Error loading archives: ${error.message}</li>`;
-    }
-}
-
-async function viewArchive(archiveName) {
-    try {
-        const response = await fetch(`/api/archives/${archiveName}`);
-        const result = await response.json();
-
-        if (!result.success) {
-            alert(`Error: ${result.error}`);
-            return;
+        async function refreshScan() {
+            const btn = document.getElementById('scanRefreshBtn');
+            btn.disabled = true; btn.textContent = '⏳ Scanning...';
+            try {
+                const res = await fetch('/api/live-scan'), data = await res.json();
+                document.getElementById('liveTotalScanned').textContent = data.total_scanned || 0;
+                document.getElementById('liveTopCandidates').textContent = (data.top_candidates || []).length;
+                document.getElementById('liveScanTime').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '—';
+                const list = document.getElementById('liveCandidatesList'), candidates = data.top_candidates || [];
+                if (!candidates.length) { list.innerHTML = '<div class="scan-empty">No candidates found. API may be unavailable.</div>'; return; }
+                list.innerHTML = candidates.slice(0, 10).map((c, i) => {
+                    const change = c.change_24h_pct || 0, changeClass = change >= 0 ? 'up' : 'down', changeSign = change >= 0 ? '+' : '', volM = (c.volume_24h / 1_000_000).toFixed(1);
+                    return '<div class="candidate-item"><div><div class="candidate-symbol">#' + (i+1) + ' ' + c.symbol + (i < 3 ? '<span class="watchlist-tag">WATCHLIST</span>' : '') + '</div><div class="candidate-meta">Vol: $' + volM + 'M | Range: $' + (c.low_24h?.toFixed(2) || '—') + ' - $' + (c.high_24h?.toFixed(2) || '—') + '</div></div><div style="text-align:right;"><div class="candidate-price">$' + (c.last_price?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) || '—') + '</div><div class="candidate-change ' + changeClass + '">' + changeSign + change.toFixed(2) + '%</div><div class="candidate-vol">24h change</div></div></div>';
+                }).join('');
+            } catch (e) { document.getElementById('liveCandidatesList').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
+            finally { btn.disabled = false; btn.textContent = '🔄 Refresh'; }
         }
 
-        const archive = result.archive;
-        const session = archive.session || {};
-
-        let message = `📁 Archive: ${archiveName}\n\n`;
-        message += `Archived: ${archive.archived_at}\n`;
-        message += `Trades: ${session.total_trades || 0}\n`;
-        message += `Closed: ${session.closed_trades || 0}\n`;
-        message += `Winners: ${session.winners || 0} | Losers: ${session.losers || 0}\n`;
-        message += `Win Rate: ${session.win_rate_pct || 0}%\n`;
-        message += `Total P&L: $${(session.total_realized_pnl || 0).toLocaleString()}\n`;
-        message += `Final Equity: $${(session.final_equity || 0).toLocaleString()}\n`;
-        message += `Return: ${session.total_return_pct || 0}%\n`;
-
-        if (archive.open_positions_at_archive && archive.open_positions_at_archive.length > 0) {
-            message += `\nOpen positions at archive:\n`;
-            archive.open_positions_at_archive.forEach(pos => {
-                message += `  • ${pos.symbol} ${pos.direction} @ $${pos.entry_price}\n`;
-            });
+        async function loadScanSummary() {
+            try {
+                const res = await fetch('/api/scan-summary?hours=1'), data = await res.json();
+                document.getElementById('sumTotalEvals').textContent = data.total_evaluations || 0;
+                document.getElementById('sumUniqueScanned').textContent = data.unique_symbols_scanned || 0;
+                document.getElementById('sumUniquePassed').textContent = data.unique_symbols_passed || 0;
+                const signalRes = await fetch('/api/signal-log?limit=100'), signalData = await signalRes.json();
+                document.getElementById('sumSignals').textContent = (signalData.signals || []).length;
+                const details = document.getElementById('scanSummaryDetails'), symbols = data.symbols_scanned || [], passed = data.symbols_passed || [];
+                if (!symbols.length) { details.innerHTML = '<div class="scan-empty">No scan data yet. Start the bot to begin scanning.</div>'; return; }
+                details.innerHTML = '<div style="margin-bottom:1rem;"><div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Recently Scanned Symbols (' + symbols.length + '):</div><div style="display:flex;flex-wrap:wrap;gap:0.4rem;">' + symbols.map(s => '<span style="padding:0.2rem 0.5rem;background:#111827;border-radius:4px;font-size:0.75rem;color:#e2e8f0;">' + s + '</span>').join('') + '</div></div>' + (passed.length ? '<div><div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Passed All Layers (' + passed.length + '):</div><div style="display:flex;flex-wrap:wrap;gap:0.4rem;">' + passed.map(s => '<span style="padding:0.2rem 0.5rem;background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);border-radius:4px;font-size:0.75rem;color:#00d4aa;font-weight:600;">' + s + '</span>').join('') + '</div></div>' : '');
+            } catch (e) { document.getElementById('scanSummaryDetails').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
         }
 
-        alert(message);
-
-    } catch (error) {
-        alert(`Error viewing archive: ${error.message}`);
-    }
-}
-
-// --- Initialize on page load ---
-document.addEventListener('DOMContentLoaded', () => {
-    // Attach Force Reset button handler
-    const forceResetBtn = document.getElementById('forceResetBtn');
-    if (forceResetBtn) {
-        forceResetBtn.addEventListener('click', handleForceReset);
-    }
-
-    // Load archives
-    loadArchives();
-});
-
-    
-
-
-// =============================================================================
-// SCAN VISIBILITY — Live Token Tracking
-// =============================================================================
-
-let currentScanTab = 'live';
-let scanPollInterval = null;
-
-function switchScanTab(tab) {
-    currentScanTab = tab;
-    document.querySelectorAll('.scan-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-    document.querySelectorAll('.scan-content').forEach(c => c.classList.toggle('active', c.id === 'scanTab-' + tab));
-
-    if (tab === 'live') refreshScan();
-    if (tab === 'summary') loadScanSummary();
-    if (tab === 'signals') loadSignalLog();
-    if (tab === 'layers') loadLayerFunnel();
-}
-
-async function refreshScan() {
-    const btn = document.getElementById('scanRefreshBtn');
-    btn.disabled = true;
-    btn.textContent = '⏳ Scanning...';
-
-    try {
-        const res = await fetch('/api/live-scan');
-        const data = await res.json();
-
-        document.getElementById('liveTotalScanned').textContent = data.total_scanned || 0;
-        document.getElementById('liveTopCandidates').textContent = (data.top_candidates || []).length;
-        document.getElementById('liveScanTime').textContent = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '—';
-
-        const list = document.getElementById('liveCandidatesList');
-        const candidates = data.top_candidates || [];
-
-        if (!candidates.length) {
-            list.innerHTML = '<div class="scan-empty">No candidates found. API may be unavailable.</div>';
-            return;
+        async function loadSignalLog() {
+            try {
+                const res = await fetch('/api/signal-log?limit=20'), data = await res.json();
+                const signals = data.signals || [], list = document.getElementById('signalsList');
+                if (!signals.length) { list.innerHTML = '<div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div>'; return; }
+                list.innerHTML = signals.slice().reverse().map(s => {
+                    const time = s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : '—', dirClass = s.direction === 'long' ? 'long' : 'short';
+                    return '<div class="signal-item"><span class="signal-badge ' + dirClass + '">' + (s.direction?.toUpperCase() || '—') + '</span><div><div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;">' + s.symbol + '</div><div style="font-size:0.75rem;color:#64748b;">Entry: $' + (s.entry_price?.toFixed(4) || '—') + ' | SL: $' + (s.stop_loss?.toFixed(4) || '—') + ' | TP: $' + (s.take_profit?.toFixed(4) || '—') + '</div></div><div style="text-align:right;"><div style="font-size:0.8rem;color:#94a3b8;">Conf: ' + (s.confidence || '—') + '%</div></div><div class="signal-time">' + time + '</div></div>';
+                }).join('');
+            } catch (e) { document.getElementById('signalsList').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
         }
 
-        list.innerHTML = candidates.slice(0, 10).map((c, i) => {
-            const change = c.change_24h_pct || 0;
-            const changeClass = change >= 0 ? 'up' : 'down';
-            const changeSign = change >= 0 ? '+' : '';
-            const volM = (c.volume_24h / 1_000_000).toFixed(1);
-
-            return `
-                <div class="candidate-item">
-                    <div>
-                        <div class="candidate-symbol">#${i+1} ${c.symbol}${i < 3 ? '<span class="watchlist-tag">WATCHLIST</span>' : ''}</div>
-                        <div class="candidate-meta">Vol: $${volM}M | Range: $${c.low_24h?.toFixed(2) || '—'} - $${c.high_24h?.toFixed(2) || '—'}</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div class="candidate-price">$${c.last_price?.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 4}) || '—'}</div>
-                        <div class="candidate-change ${changeClass}">${changeSign}${change.toFixed(2)}%</div>
-                        <div class="candidate-vol">24h change</div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
-    } catch (e) {
-        document.getElementById('liveCandidatesList').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '🔄 Refresh';
-    }
-}
-
-async function loadScanSummary() {
-    try {
-        const res = await fetch('/api/scan-summary?hours=1');
-        const data = await res.json();
-
-        document.getElementById('sumTotalEvals').textContent = data.total_evaluations || 0;
-        document.getElementById('sumUniqueScanned').textContent = data.unique_symbols_scanned || 0;
-        document.getElementById('sumUniquePassed').textContent = data.unique_symbols_passed || 0;
-
-        // Count signals from signal log
-        const signalRes = await fetch('/api/signal-log?limit=100');
-        const signalData = await signalRes.json();
-        document.getElementById('sumSignals').textContent = (signalData.signals || []).length;
-
-        const details = document.getElementById('scanSummaryDetails');
-        const symbols = data.symbols_scanned || [];
-        const passed = data.symbols_passed || [];
-
-        if (!symbols.length) {
-            details.innerHTML = '<div class="scan-empty">No scan data yet. Start the bot to begin scanning.</div>';
-            return;
+        async function loadLayerFunnel() {
+            try {
+                const res = await fetch('/api/scan-summary?hours=1'), data = await res.json();
+                const layerStats = data.layer_stats || {}, container = document.getElementById('layerFunnel');
+                if (!Object.keys(layerStats).length) { container.innerHTML = '<div class="scan-empty">No layer data yet. Start the bot to populate the funnel.</div>'; return; }
+                const maxTotal = Math.max(...Object.values(layerStats).map(l => l.passed + l.failed), 1);
+                const layerNames = { 'layer_1_regime': '🌊 Layer 1: Market Regime', 'layer_2_trend': '📈 Layer 2: Trend Analysis', 'layer_3_pullback': '🎯 Layer 3: Pullback Detection', 'layer_4_entry': '⚡ Layer 4: Entry Trigger', 'layer_5_risk': '🛡️ Layer 5: Risk Management', 'layer_6_execution': '🔧 Layer 6: Execution', 'layer_7_management': '📋 Layer 7: Trade Management', 'layer_8_performance': '📊 Layer 8: Performance Review' };
+                container.innerHTML = '<div class="layer-funnel">' + Object.entries(layerStats).map(([key, stats]) => {
+                    const total = stats.passed + stats.failed, passPct = total > 0 ? (stats.passed / total * 100) : 0, passWidth = total > 0 ? (stats.passed / maxTotal * 100) : 0, failWidth = total > 0 ? (stats.failed / maxTotal * 100) : 0, name = layerNames[key] || key;
+                    return '<div class="layer-bar"><div class="layer-bar-label">' + name + '</div><div class="layer-bar-track"><div class="layer-bar-fill pass" style="width:' + passWidth + '%;position:absolute;left:0;">' + (stats.passed > 0 ? stats.passed : '') + '</div>' + (failWidth > 0 ? '<div class="layer-bar-fill fail" style="width:' + failWidth + '%;position:absolute;left:' + passWidth + '%;">' + stats.failed + '</div>' : '') + '</div><div style="width:50px;text-align:right;font-size:0.75rem;color:#94a3b8;">' + passPct.toFixed(0) + '% pass</div></div>';
+                }).join('') + '</div>';
+            } catch (e) { document.getElementById('layerFunnel').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
         }
 
-        details.innerHTML = `
-            <div style="margin-bottom:1rem;">
-                <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Recently Scanned Symbols (${symbols.length}):</div>
-                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
-                    ${symbols.map(s => `<span style="padding:0.2rem 0.5rem;background:#111827;border-radius:4px;font-size:0.75rem;color:#e2e8f0;">${s}</span>`).join('')}
-                </div>
-            </div>
-            ${passed.length ? `
-            <div>
-                <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.5rem;">Passed All Layers (${passed.length}):</div>
-                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
-                    ${passed.map(s => `<span style="padding:0.2rem 0.5rem;background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);border-radius:4px;font-size:0.75rem;color:#00d4aa;font-weight:600;">${s}</span>`).join('')}
-                </div>
-            </div>` : ''}
-        `;
-
-    } catch (e) {
-        document.getElementById('scanSummaryDetails').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
-    }
-}
-
-async function loadSignalLog() {
-    try {
-        const res = await fetch('/api/signal-log?limit=20');
-        const data = await res.json();
-        const signals = data.signals || [];
-        const list = document.getElementById('signalsList');
-
-        if (!signals.length) {
-            list.innerHTML = '<div class="scan-empty">No signals generated yet. Start the bot to scan for signals.</div>';
-            return;
+        async function loadScanLog() {
+            try {
+                let url = '/api/scan-log?limit=50';
+                if (currentScanLogFilter === 'passed') url += '&passed=true';
+                if (currentScanLogFilter === 'failed') url += '&passed=false';
+                const res = await fetch(url), data = await res.json();
+                const entries = data.entries || [], container = document.getElementById('scanLogEntries');
+                if (!entries.length) { container.innerHTML = '<div class="scan-empty">No scan log entries for this filter.</div>'; return; }
+                container.innerHTML = entries.slice().reverse().map(e => {
+                    const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—';
+                    const passClass = e.passed ? 'scan-log-pass' : 'scan-log-fail';
+                    const passText = e.passed ? '✓' : '✗';
+                    return '<div class="scan-log-entry"><div class="' + passClass + '">' + passText + '</div><div class="scan-log-symbol">' + e.symbol + '</div><div class="scan-log-layer">' + e.layer + '</div><div class="scan-log-reason" title="' + (e.reason || '') + '">' + (e.reason || '') + '</div><div class="scan-log-time">' + time + '</div></div>';
+                }).join('');
+            } catch (e) { document.getElementById('scanLogEntries').innerHTML = '<div class="scan-empty">Error: ' + e.message + '</div>'; }
         }
 
-        list.innerHTML = signals.slice().reverse().map(s => {
-            const time = s.timestamp ? new Date(s.timestamp).toLocaleTimeString() : '—';
-            const dirClass = s.direction === 'long' ? 'long' : 'short';
-            return `
-                <div class="signal-item">
-                    <span class="signal-badge ${dirClass}">${s.direction?.toUpperCase()}</span>
-                    <div>
-                        <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;">${s.symbol}</div>
-                        <div style="font-size:0.75rem;color:#64748b;">Entry: $${s.entry_price?.toFixed(4) || '—'} | SL: $${s.stop_loss?.toFixed(4) || '—'} | TP: $${s.take_profit?.toFixed(4) || '—'}</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:0.8rem;color:#94a3b8;">Conf: ${s.confidence || '—'}%</div>
-                    </div>
-                    <div class="signal-time">${time}</div>
-                </div>
-            `;
-        }).join('');
-
-    } catch (e) {
-        document.getElementById('signalsList').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
-    }
-}
-
-async function loadLayerFunnel() {
-    try {
-        const res = await fetch('/api/scan-summary?hours=1');
-        const data = await res.json();
-        const layerStats = data.layer_stats || {};
-        const container = document.getElementById('layerFunnel');
-
-        if (!Object.keys(layerStats).length) {
-            container.innerHTML = '<div class="scan-empty">No layer data yet. Start the bot to populate the funnel.</div>';
-            return;
+        function filterScanLog(filter) {
+            currentScanLogFilter = filter;
+            document.querySelectorAll('.scan-log-filter').forEach(f => f.classList.toggle('active', f.dataset.filter === filter));
+            loadScanLog();
         }
 
-        // Find max for scaling
-        const maxTotal = Math.max(...Object.values(layerStats).map(l => l.passed + l.failed), 1);
+        function startScanPolling() {
+            if (scanPollInterval) clearInterval(scanPollInterval);
+            scanPollInterval = setInterval(() => {
+                if (currentScanTab === 'live') refreshScan();
+                if (currentScanTab === 'summary') loadScanSummary();
+                if (currentScanTab === 'signals') loadSignalLog();
+                if (currentScanTab === 'layers') loadLayerFunnel();
+                if (currentScanTab === 'log') loadScanLog();
+            }, 30000);
+        }
 
-        const layerNames = {
-            'layer_1_regime': '🌊 Layer 1: Market Regime',
-            'layer_2_trend': '📈 Layer 2: Trend Analysis',
-            'layer_3_pullback': '🎯 Layer 3: Pullback Detection',
-            'layer_4_entry': '⚡ Layer 4: Entry Trigger',
-            'layer_5_risk': '🛡️ Layer 5: Risk Management',
-            'layer_6_execution': '🔧 Layer 6: Execution',
-            'layer_7_management': '📋 Layer 7: Trade Management',
-            'layer_8_performance': '📊 Layer 8: Performance Review',
-        };
-
-        container.innerHTML = `<div class="layer-funnel">` + 
-            Object.entries(layerStats).map(([key, stats]) => {
-                const total = stats.passed + stats.failed;
-                const passPct = total > 0 ? (stats.passed / total * 100) : 0;
-                const passWidth = total > 0 ? (stats.passed / maxTotal * 100) : 0;
-                const failWidth = total > 0 ? (stats.failed / maxTotal * 100) : 0;
-                const name = layerNames[key] || key;
-
-                return `
-                    <div class="layer-bar">
-                        <div class="layer-bar-label">${name}</div>
-                        <div class="layer-bar-track">
-                            <div class="layer-bar-fill pass" style="width:${passWidth}%;position:absolute;left:0;">${stats.passed > 0 ? stats.passed : ''}</div>
-                            ${failWidth > 0 ? `<div class="layer-bar-fill fail" style="width:${failWidth}%;position:absolute;left:${passWidth}%;">${stats.failed}</div>` : ''}
-                        </div>
-                        <div style="width:50px;text-align:right;font-size:0.75rem;color:#94a3b8;">${passPct.toFixed(0)}% pass</div>
-                    </div>
-                `;
-            }).join('') + 
-            `</div>`;
-
-    } catch (e) {
-        document.getElementById('layerFunnel').innerHTML = `<div class="scan-empty">Error: ${e.message}</div>`;
-    }
-}
-
-// Auto-refresh scan data every 30 seconds when visible
-function startScanPolling() {
-    if (scanPollInterval) clearInterval(scanPollInterval);
-    scanPollInterval = setInterval(() => {
-        if (currentScanTab === 'live') refreshScan();
-        if (currentScanTab === 'summary') loadScanSummary();
-        if (currentScanTab === 'signals') loadSignalLog();
-        if (currentScanTab === 'layers') loadLayerFunnel();
-    }, 30000);
-}
-
-// Initialize scan visibility on page load
-document.addEventListener('DOMContentLoaded', () => {
-    refreshScan();
-    startScanPolling();
-});
-
-</script>
+        syncBotState(); fetchBalance('paper'); loadArchives(); refreshScan(); startScanPolling();
+    </script>
 </body>
 </html>
