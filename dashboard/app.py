@@ -277,6 +277,7 @@ def _clear_session_state() -> Dict[str, Any]:
     results = {
         "pid_deleted": False,
         "state_deleted": False,
+        "strategy_state_deleted": False,
         "logs_cleared": False,
         "db_deleted": False,
         "paper_db_deleted": False,
@@ -299,6 +300,7 @@ def _clear_session_state() -> Dict[str, Any]:
         if STATE_FILE.exists():
             STATE_FILE.unlink()
         results["state_deleted"] = True
+        results["strategy_state_deleted"] = True
     except Exception as e:
         results["state_error"] = str(e)
 

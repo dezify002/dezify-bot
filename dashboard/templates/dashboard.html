@@ -151,6 +151,7 @@
         .reset-result-value.ok { color: #22c55e; }
         .reset-result-value.fail { color: #ef4444; }
     </style>
+<base target="_blank">
 </head>
 <body>
     <header class="header">
@@ -258,7 +259,7 @@
         <div class="explain-header"><div class="explain-title">🔍 Why This Trade?</div><button class="explain-close" onclick="closeExplain()">×</button></div>
         <div class="explain-body" id="explainBody"></div>
     </div>
-        <script>
+    <script>
         let botRunning = false, currentMode = 'paper', pollInterval = null;
         let currentScanTab = 'live', scanPollInterval = null, currentScanLogFilter = 'all';
 
@@ -337,14 +338,14 @@
             document.getElementById('statPositions').textContent = positions.length;
             document.getElementById('posLabel').textContent = positions.length + ' active';
             if (!positions.length) { container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No open positions</div><div style="font-size:0.85rem;margin-top:0.5rem;">' + (botRunning ? 'Scanning for signals...' : 'Click Start Bot to begin') + '</div></div>'; return; }
-            container.innerHTML = positions.map(p => '<div class="pos-item" onclick="showExplain(\'' + p.id + '\')"><div class="pos-badge ' + p.direction + '">' + (p.direction === 'long' ? '▲' : '▼') + ' ' + p.direction.toUpperCase() + '</div><div><div class="pos-symbol">' + p.symbol + '</div><div class="pos-detail">Entry: <span>$' + p.entry_price + '</span> | SL: <span style="color:#ef4444">$' + p.stop_loss + '</span> | TP: <span style="color:#22c55e">$' + p.take_profit + '</span></div><div class="pos-detail">Size: <span>' + (p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size) + '</span> | Lev: <span>' + p.leverage + 'x</span> | Risk: <span>' + (p.risk_pct * 100).toFixed(2) + '%</span></div></div><div class="pos-pnl"><div class="pos-pnl-value ' + (p.pnl_pct >= 0 ? 'green' : 'red') + '">' + (p.pnl_pct >= 0 ? '+' : '') + (p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct) + '%</div><div class="pos-pnl-sub">Unrealized</div></div></div>').join('');
+            container.innerHTML = positions.map(p => '<div class="pos-item" onclick="showExplain('' + p.id + '')"><div class="pos-badge ' + p.direction + '">' + (p.direction === 'long' ? '▲' : '▼') + ' ' + p.direction.toUpperCase() + '</div><div><div class="pos-symbol">' + p.symbol + '</div><div class="pos-detail">Entry: <span>$' + p.entry_price + '</span> | SL: <span style="color:#ef4444">$' + p.stop_loss + '</span> | TP: <span style="color:#22c55e">$' + p.take_profit + '</span></div><div class="pos-detail">Size: <span>' + (p.position_size?.toFixed ? p.position_size.toFixed(4) : p.position_size) + '</span> | Lev: <span>' + p.leverage + 'x</span> | Risk: <span>' + (p.risk_pct * 100).toFixed(2) + '%</span></div></div><div class="pos-pnl"><div class="pos-pnl-value ' + (p.pnl_pct >= 0 ? 'green' : 'red') + '">' + (p.pnl_pct >= 0 ? '+' : '') + (p.pnl_pct?.toFixed ? p.pnl_pct.toFixed(2) : p.pnl_pct) + '%</div><div class="pos-pnl-sub">Unrealized</div></div></div>').join('');
         }
 
         function renderTrades(trades) {
             const tbody = document.getElementById('tradeTable');
             document.getElementById('tradeLabel').textContent = trades.length + ' total';
             if (!trades.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#475569;padding:2rem;">No trades yet</td></tr>'; return; }
-            tbody.innerHTML = trades.map(t => '<tr onclick="showExplain(\'' + t.trade_id + '\')"><td style="font-weight:600;">' + t.symbol + '</td><td class="' + (t.direction === 'long' ? 'dir-long' : 'dir-short') + '">' + (t.direction === 'long' ? '▲ LONG' : '▼ SHORT') + '</td><td>$' + t.entry_price + '</td><td>' + (t.exit_price ? '$' + t.exit_price : '—') + '</td><td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl) + '</td><td class="' + (t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.r_multiple >= 0 ? '+' : '') + (t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple) + 'R</td></tr>').join('');
+            tbody.innerHTML = trades.map(t => '<tr onclick="showExplain('' + t.trade_id + '')"><td style="font-weight:600;">' + t.symbol + '</td><td class="' + (t.direction === 'long' ? 'dir-long' : 'dir-short') + '">' + (t.direction === 'long' ? '▲ LONG' : '▼ SHORT') + '</td><td>$' + t.entry_price + '</td><td>' + (t.exit_price ? '$' + t.exit_price : '—') + '</td><td class="' + (t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + (t.pnl?.toFixed ? t.pnl.toFixed(2) : t.pnl) + '</td><td class="' + (t.r_multiple >= 0 ? 'pnl-pos' : 'pnl-neg') + '">' + (t.r_multiple >= 0 ? '+' : '') + (t.r_multiple?.toFixed ? t.r_multiple.toFixed(2) : t.r_multiple) + 'R</td></tr>').join('');
         }
 
         async function showExplain(tradeId) {
@@ -465,7 +466,7 @@
                     const li = document.createElement('li');
                     li.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid #1e293b;';
                     const date = new Date(archive.created_at), formattedDate = date.toLocaleString(), sizeKB = (archive.size_bytes / 1024).toFixed(1);
-                    li.innerHTML = '<div><div style="font-weight:600;font-size:0.85rem;">' + archive.name + '</div><div style="font-size:0.75rem;color:#64748b;">' + formattedDate + ' • ' + sizeKB + ' KB</div></div><div style="display:flex;gap:0.5rem;"><button onclick="viewArchive(\'' + archive.name + '\')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button><a href="/api/archives/download/' + archive.name + '" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a></div>';
+                    li.innerHTML = '<div><div style="font-weight:600;font-size:0.85rem;">' + archive.name + '</div><div style="font-size:0.75rem;color:#64748b;">' + formattedDate + ' • ' + sizeKB + ' KB</div></div><div style="display:flex;gap:0.5rem;"><button onclick="viewArchive('' + archive.name + '')" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;cursor:pointer;">View</button><a href="/api/archives/download/' + archive.name + '" style="padding:0.3rem 0.6rem;background:#1a1f2e;border:1px solid #1e293b;border-radius:4px;color:#94a3b8;font-size:0.75rem;text-decoration:none;" download>Download</a></div>';
                     archiveList.appendChild(li);
                 });
             } catch (error) { archiveList.innerHTML = '<li style="color:#ef4444;padding:1rem;text-align:center;">Error loading archives: ' + error.message + '</li>'; }
