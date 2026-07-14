@@ -3,6 +3,10 @@ Trade With Dezify - Flask Dashboard
 FIXED: Force Reset now ACTUALLY deletes everything (not flat-exits)
 FIXED: Bot startup clears old state so old positions don't come back
 FIXED: Scan visibility shows real data with passed/failed per layer
+FIXED: Removed ALL demo/fake data. Dashboard only ever shows real DB-backed
+       state. Empty means empty. The "Token Scan Visibility" card is the
+       only place market-scan/watchlist data is shown, and it is clearly
+       labeled as scan output, not positions.
 """
 
 import os
@@ -266,7 +270,7 @@ def _list_archives() -> List[Dict[str, Any]]:
 
 
 # =============================================================================
-# STATE CLEARING — FIXED: ACTUALLY DELETES FILES, NOT FLAT-EXITS
+# STATE CLEARING — ACTUALLY DELETES FILES, NOT FLAT-EXITS
 # =============================================================================
 
 def _clear_session_state() -> Dict[str, Any]:
@@ -384,7 +388,10 @@ def _clear_session_state() -> Dict[str, Any]:
 
 
 # =============================================================================
-# DEMO DATA — LIVE BITGET SCAN
+# LIVE BITGET SCAN — powers ONLY the "Token Scan Visibility" card.
+# This is explicitly a market scanner / watchlist view. It must never be
+# used to populate the Open Positions or Trade History sections — those
+# must only ever reflect the real database.
 # =============================================================================
 
 def _scan_bitget_universe(min_volume_usd: float = 5_000_000) -> List[Dict]:
@@ -445,51 +452,6 @@ def _get_top_candidates(candidates: List[Dict], top_n: int = 10) -> List[Dict]:
         filtered.append(c)
 
     return filtered[:top_n]
-
-
-def _generate_live_scan_positions(mode: str) -> List[Dict]:
-    """Generate watchlist positions from REAL Bitget API scan."""
-    candidates = _scan_bitget_universe(min_volume_usd=5_000_000)
-    top = _get_top_candidates(candidates, top_n=10)
-
-    if not top:
-        return []
-
-    positions = []
-    for i, cand in enumerate(top[:3]):
-        direction = "long" if cand["change_24h_pct"] >= 0 else "short"
-        price_range = cand["high_24h"] - cand["low_24h"]
-        if price_range <= 0:
-            price_range = cand["last_price"] * 0.02
-
-        if direction == "long":
-            stop_loss = round(cand["last_price"] - price_range * 0.3, 4)
-            take_profit = round(cand["last_price"] + price_range * 0.9, 4)
-        else:
-            stop_loss = round(cand["last_price"] + price_range * 0.3, 4)
-            take_profit = round(cand["last_price"] - price_range * 0.9, 4)
-
-        positions.append({
-            "id": f"scan-{i+1}",
-            "symbol": cand["symbol"],
-            "direction": direction,
-            "entry_price": round(cand["last_price"], 4),
-            "current_price": round(cand["last_price"], 4),
-            "stop_loss": stop_loss,
-            "take_profit": take_profit,
-            "position_size": 0,
-            "position_value": 0,
-            "leverage": 1,
-            "risk_pct": 0,
-            "pnl_pct": round(cand["change_24h_pct"], 2),
-            "entry_time": datetime.now(timezone.utc).isoformat(),
-            "r_multiple": 0,
-            "watchlist": True,
-            "volume_24h": cand["volume_24h"],
-            "change_24h_pct": cand["change_24h_pct"],
-        })
-
-    return positions
 
 
 # =============================================================================
@@ -594,73 +556,6 @@ def _get_signal_log(limit: int = 50) -> List[Dict]:
         return logs[-limit:]
     except Exception as e:
         return [{"error": str(e)}]
-
-
-DEMO_POSITIONS = {"paper": [], "backtest": [], "live": []}
-
-DEMO_TRADES = {
-    "paper": [
-        {
-            "trade_id": "demo-t1", "symbol": "BTCUSDT", "direction": "long",
-            "entry_price": 94200.0, "exit_price": 97800.0, "pnl": 180.5,
-            "pnl_pct": 3.82, "r_multiple": 1.95,
-            "entry_time": "2026-07-08T14:30:00", "exit_time": "2026-07-09T09:15:00",
-            "regime": "trending", "exit_reason": "take_profit",
-        },
-        {
-            "trade_id": "demo-t2", "symbol": "ETHUSDT", "direction": "short",
-            "entry_price": 3820.0, "exit_price": 3650.0, "pnl": 136.0,
-            "pnl_pct": 4.45, "r_multiple": 2.12,
-            "entry_time": "2026-07-09T11:00:00", "exit_time": "2026-07-10T16:45:00",
-            "regime": "trending", "exit_reason": "take_profit",
-        },
-        {
-            "trade_id": "demo-t3", "symbol": "SOLUSDT", "direction": "long",
-            "entry_price": 138.0, "exit_price": 132.0, "pnl": -72.0,
-            "pnl_pct": -4.35, "r_multiple": -1.0,
-            "entry_time": "2026-07-10T08:20:00", "exit_time": "2026-07-10T22:10:00",
-            "regime": "ranging", "exit_reason": "stop_loss",
-        },
-    ],
-    "backtest": [
-        {
-            "trade_id": "demo-bt1", "symbol": "BTCUSDT", "direction": "long",
-            "entry_price": 65000.0, "exit_price": 72000.0, "pnl": 525.0,
-            "pnl_pct": 10.77, "r_multiple": 3.5,
-            "entry_time": "2024-03-01T10:00:00", "exit_time": "2024-03-15T14:00:00",
-            "regime": "trending", "exit_reason": "take_profit",
-        },
-        {
-            "trade_id": "demo-bt2", "symbol": "ETHUSDT", "direction": "short",
-            "entry_price": 3500.0, "exit_price": 3100.0, "pnl": 320.0,
-            "pnl_pct": 11.43, "r_multiple": 2.86,
-            "entry_time": "2024-04-10T09:00:00", "exit_time": "2024-04-25T16:00:00",
-            "regime": "trending", "exit_reason": "take_profit",
-        },
-    ],
-    "live": [],
-}
-
-DEMO_STATS = {
-    "paper": {"equity": 12500.0, "open_positions": 2, "today_pnl": 245.0, "today_trades": 3, "win_rate": 68.5, "avg_r": 1.42, "total_risk": 2.5},
-    "backtest": {"equity": 18750.0, "open_positions": 1, "today_pnl": 0.0, "today_trades": 0, "win_rate": 72.0, "avg_r": 1.85, "total_risk": 1.2},
-    "live": {"equity": 50000.0, "open_positions": 0, "today_pnl": 0.0, "today_trades": 0, "win_rate": 0.0, "avg_r": 0.0, "total_risk": 0.0},
-}
-
-
-def _is_demo_mode() -> bool:
-    explicit_demo = request.args.get("demo", "0") == "1" or request.args.get("demo_mode", "0") == "1"
-    if explicit_demo:
-        return True
-    try:
-        if Database:
-            db = Database()
-            trades = db.get_all_trades(limit=1)
-            if trades:
-                return False
-    except Exception:
-        pass
-    return True
 
 
 # =============================================================================
@@ -782,7 +677,7 @@ def set_mode():
 
 
 # =============================================================================
-# FORCE STOP / RESET ENDPOINT — FIXED
+# FORCE STOP / RESET ENDPOINT
 # =============================================================================
 
 @app.route("/api/force-reset", methods=["POST"])
@@ -836,7 +731,7 @@ def force_reset():
         # STEP 2: ARCHIVE CURRENT SESSION
         response["archive"] = _archive_session()
 
-        # STEP 3: CLEAR ALL LIVE STATE (NOW DELETES DBs)
+        # STEP 3: CLEAR ALL LIVE STATE (DELETES DBs)
         response["state_cleared"] = _clear_session_state()
 
         # STEP 4: VERIFY CLEAN STATE
@@ -909,6 +804,9 @@ def download_archive(archive_name):
 
 # =============================================================================
 # SCAN & SIGNAL VISIBILITY ENDPOINTS
+# (These power the "Token Scan Visibility" card only. They are honestly
+#  labeled as scan/watchlist data everywhere in the UI and are never used
+#  to populate Open Positions or Trade History.)
 # =============================================================================
 
 @app.route("/api/scan-summary")
@@ -1020,7 +918,7 @@ def strategy_evaluate():
 
 
 # =============================================================================
-# START BOT — FIXED: Clears old state on startup
+# START BOT — Clears old state on startup
 # =============================================================================
 
 @app.route("/api/start", methods=["POST"])
@@ -1123,7 +1021,7 @@ def start_bot():
                     "strategy_check": strategy_check,
                 }), 500
 
-            # FIXED: Bot startup script now clears old state before running
+            # Bot startup script clears old state before running
             bot_script = DATA_DIR / "run_bot.py"
             bot_script.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1337,23 +1235,6 @@ def stop_bot():
 
 @app.route("/api/status")
 def get_status():
-    if _is_demo_mode():
-        mode = request.args.get("mode", _mode)
-        stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        scan = _scan_bitget_universe(min_volume_usd=5_000_000)
-        top_symbols = [c["symbol"] for c in _get_top_candidates(scan, 5)]
-        return jsonify({
-            "running": False, "mode": mode, "cycle_count": 0,
-            "last_cycle_time": None, "last_error": None,
-            **stats, "demo": True,
-            "bot_available": BOT_AVAILABLE, "backtest_available": BACKTEST_AVAILABLE,
-            "scan": {
-                "symbols_scanned": len(scan),
-                "top_candidates": top_symbols,
-                "scan_time": datetime.now(timezone.utc).isoformat(),
-            }
-        })
-
     is_running = _is_bot_running()
     info = _get_bot_info()
     pid = info.get("pid")
@@ -1416,7 +1297,6 @@ def get_status():
         "avg_r": _stats_cache["avg_r"],
         "total_risk": _stats_cache["total_risk"],
         "unrealized_pnl": round(live_unrealized_pnl, 2),
-        "demo": False,
         "bot_available": BOT_AVAILABLE,
         "backtest_available": BACKTEST_AVAILABLE,
         "pid": pid,
@@ -1441,20 +1321,15 @@ def get_backtest_status():
 
 @app.route("/api/positions")
 def get_positions():
-    if _is_demo_mode():
-        mode = request.args.get("mode", _mode)
-        scan_positions = _generate_live_scan_positions(mode)
-        return jsonify({
-            "positions": scan_positions,
-            "count": len(scan_positions),
-            "mode": mode,
-            "demo": True,
-            "source": "bitget_scan" if scan_positions else "empty",
-        })
-
+    """
+    Real open positions only. If the database is empty, this returns an
+    empty list — never a fabricated/watchlist position. Market-scan
+    candidates live exclusively under /api/live-scan and the
+    "Token Scan Visibility" card.
+    """
     try:
         if not Database:
-            return jsonify({"positions": [], "count": 0, "mode": _mode, "demo": False})
+            return jsonify({"positions": [], "count": 0, "mode": _mode, "error": "Database not available"})
         db = Database()
         open_trades = db.get_open_trades()
 
@@ -1527,23 +1402,20 @@ def get_positions():
             "positions": positions,
             "count": len(positions),
             "mode": _mode,
-            "demo": False,
             "price_source": price_source,
             "prices_fetched": len(live_prices),
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({"positions": [], "count": 0, "mode": _mode, "demo": False, "error": str(e)})
+        return jsonify({"positions": [], "count": 0, "mode": _mode, "error": str(e)})
 
 
 @app.route("/api/trades")
 def get_trades():
-    if _is_demo_mode():
-        mode = request.args.get("mode", _mode)
-        return jsonify({"trades": DEMO_TRADES.get(mode, []), "total": len(DEMO_TRADES.get(mode, [])), "mode": mode, "demo": True})
+    """Real trade history only, direct from the database."""
     _update_from_database()
-    return jsonify({"trades": _trades_cache, "total": len(_trades_cache), "mode": _mode, "demo": False})
+    return jsonify({"trades": _trades_cache, "total": len(_trades_cache), "mode": _mode})
 
 
 @app.route("/api/trade/<trade_id>")
@@ -1575,23 +1447,22 @@ def get_trade_detail(trade_id):
 
 @app.route("/api/balance")
 def get_balance():
+    """Real account balance only. Uses live Bitget API for live mode and
+    the real database-derived equity for paper/backtest."""
     mode = request.args.get("mode", _mode)
-    if _is_demo_mode():
-        stats = DEMO_STATS.get(mode, DEMO_STATS["paper"])
-        return jsonify({"mode": mode, "balance": stats["equity"], "source": "demo", "currency": "USDT", "demo": True})
     if mode == "live":
         try:
             client = BitgetClient()
             balance = client.get_account_equity()
-            return jsonify({"mode": "live", "balance": balance, "source": "bitget_api", "currency": "USDT", "demo": False})
+            return jsonify({"mode": "live", "balance": balance, "source": "bitget_api", "currency": "USDT"})
         except Exception as e:
-            return jsonify({"mode": "live", "balance": 0, "error": str(e), "source": "error", "demo": False})
+            return jsonify({"mode": "live", "balance": 0, "error": str(e), "source": "error"})
     elif mode == "paper":
         _update_from_database()
-        return jsonify({"mode": "paper", "balance": _stats_cache["equity"], "source": "paper_account", "currency": "USDT", "demo": False})
+        return jsonify({"mode": "paper", "balance": _stats_cache["equity"], "source": "paper_account", "currency": "USDT"})
     else:
         equity = BACKTEST.initial_equity if hasattr(BACKTEST, "initial_equity") else STARTING_EQUITY
-        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_config", "currency": "USDT", "demo": False})
+        return jsonify({"mode": "backtest", "balance": equity, "source": "backtest_config", "currency": "USDT"})
 
 
 @app.route("/api/bot-logs")
@@ -1655,7 +1526,7 @@ def performance_report():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("TRADE WITH DEZIFY - Dashboard with Force Reset")
+    print("TRADE WITH DEZIFY - Dashboard (real data only, no demo/fake state)")
     print("=" * 60)
     print(f"Bot modules available: {BOT_AVAILABLE}")
     print(f"Backtest engine available: {BACKTEST_AVAILABLE}")
